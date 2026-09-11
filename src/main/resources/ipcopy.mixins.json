@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "ru.mqclass.ipcopy.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ChatHudMixin",
+    "ScreenMixin",
+    "SpaceModerationDotCommandMixin",
+    "SpaceModerationHelpMixin",
+    "SpaceModerationSuggestionsMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

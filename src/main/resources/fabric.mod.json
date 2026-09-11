@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "ipcopy",
+  "version": "1.1.0",
+  "name": "IP Copy",
+  "description": "Мод от mqclass: быстрый поиск IPv4, кнопки копирования в стиле SpaceModeration, нативный GUI и тактильный отклик.",
+  "authors": [
+    "mqclass"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/ipcopy/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "ru.mqclass.ipcopy.IpCopyClient"
+    ],
+    "modmenu": [
+      "ru.mqclass.ipcopy.compat.ModMenuCompat"
+    ]
+  },
+  "mixins": [
+    "ipcopy.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "1.21.11",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "spacemoderation": ">=3.5.1",
+    "modmenu": ">=17.0.0"
+  }
+}

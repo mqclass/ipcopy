@@ -1,0 +1,25 @@
+# Gradle build output and cache
+.gradle/
+build/
+
+# IDE specific files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jars (keep wrapper)
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local test scratchpads
+scratch/
