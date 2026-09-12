@@ -41,7 +41,9 @@ public class IpCopyScreen extends class_437 {
     private final class_437 parent;
     private Tab activeTab = Tab.LOOKUP;
     private class_342 nickField;
-    private String currentNick = "Odinoky";
+    private static volatile String lastQueriedNick = "";
+    private String currentNick = "";
+    private String displayedNick = "";
 
     // Pagination state
     private int currentPage = 0;
@@ -72,23 +74,32 @@ public class IpCopyScreen extends class_437 {
         this.rebuildWidgets();
     }
 
+    public static String sanitizeNick(String raw) {
+        if (raw == null) return "";
+        String s = IpLookupManager.stripColorCodes(raw).trim().replaceAll("[^A-Za-z0-9_]", "");
+        return s.length() > 16 ? s.substring(0, 16) : s;
+    }
+
     public IpCopyScreen(class_437 parent) {
-        super(class_2561.method_43470("IP Copy — Панель модератора"));
-        this.parent = parent;
-        this.currentNick = "Odinoky";
+        this(parent, null);
     }
 
     public IpCopyScreen(class_437 parent, String initialNick) {
         super(class_2561.method_43470("IP Copy — Панель модератора"));
         this.parent = parent;
         if (initialNick != null && !initialNick.trim().isEmpty()) {
-            String sanitized = initialNick.trim().replaceAll("[^A-Za-z0-9_]", "");
-            if (sanitized.length() > 16) {
-                sanitized = sanitized.substring(0, 16);
-            }
-            this.currentNick = sanitized;
+            this.currentNick = sanitizeNick(initialNick);
+            lastQueriedNick = this.currentNick;
+        } else if (!lastQueriedNick.isEmpty()) {
+            this.currentNick = lastQueriedNick;
         } else {
-            this.currentNick = "Odinoky";
+            this.currentNick = "";
+        }
+
+        if (!this.currentNick.isEmpty() && IpLookupManager.getData(this.currentNick) != null) {
+            this.displayedNick = this.currentNick;
+        } else {
+            this.displayedNick = "";
         }
     }
 
@@ -98,10 +109,12 @@ public class IpCopyScreen extends class_437 {
 
         // Register reactive update listener on UI init/resize
         IpLookupManager.setUpdateListener(nick -> {
-            if (nick != null && nick.equalsIgnoreCase(this.currentNick)) {
+            if (nick != null && (nick.equalsIgnoreCase(this.currentNick) || nick.equalsIgnoreCase(this.displayedNick))) {
                 this.queryPending = false;
                 this.queryTimedOut = false;
                 this.isNavigatingServerPage = false;
+                this.displayedNick = nick;
+                lastQueriedNick = nick;
                 class_310 client = class_310.method_1551();
                 if (client != null) {
                     client.execute(this::rebuildWidgets);
@@ -172,38 +185,78 @@ public class IpCopyScreen extends class_437 {
     private void setupLookupTab(int centerX) {
         int inputY = 30;
 
-        // Nickname text field (width: 140)
-        this.nickField = new class_342(this.field_22793, centerX - 165, inputY, 140, 20, class_2561.method_43470("Ник игрока..."));
+        // Nickname text field (width: 125)
+        this.nickField = new class_342(this.field_22793, centerX - 165, inputY, 125, 20, class_2561.method_43470("Ник игрока..."));
         this.nickField.method_1880(16);
         this.nickField.method_1852(this.currentNick);
         this.nickField.method_1863(text -> {
-            this.currentNick = text.trim();
+            String trimmed = text.trim();
+            this.currentNick = trimmed;
             this.currentPage = 0;
             this.queryTimedOut = false;
+            if (trimmed.isEmpty() && !this.displayedNick.isEmpty()) {
+                this.displayedNick = "";
+                this.rebuildWidgets();
+                if (this.nickField != null) {
+                    this.nickField.method_1852("");
+                    this.nickField.method_25365(true);
+                    this.method_25395(this.nickField);
+                }
+            }
         });
-        this.nickField.method_1890(str -> str.matches("[A-Za-z0-9_]*"));
+        this.nickField.method_1890(str -> str.length() <= 32);
         this.method_37063(this.nickField);
         this.method_25395(this.nickField);
         this.nickField.method_25365(true);
 
-        IpLookupManager.PlayerLookupData lookupData = IpLookupManager.getData(this.currentNick);
+        // [📋] Paste button
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470("§e📋"),
+            button -> pasteFromClipboard()
+        ).method_46434(centerX - 37, inputY, 18, 20)
+         .method_46436(class_7919.method_47407(class_2561.method_43470("§eВставить ник из буфера обмена\n§7Горячая клавиша: §fCtrl+V")))
+         .method_46431());
+
+        // [✖] Clear search button
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470("§c✖"),
+            button -> {
+                this.currentNick = "";
+                this.displayedNick = "";
+                this.currentPage = 0;
+                this.queryPending = false;
+                this.queryTimedOut = false;
+                this.rebuildWidgets();
+                if (this.nickField != null) {
+                    this.nickField.method_1852("");
+                    this.nickField.method_25365(true);
+                    this.method_25395(this.nickField);
+                }
+            }
+        ).method_46434(centerX - 16, inputY, 18, 20)
+         .method_46436(class_7919.method_47407(class_2561.method_43470("§cОчистить поле поиска и результаты")))
+         .method_46431());
+
+        IpLookupManager.PlayerLookupData lookupData = (!this.displayedNick.isEmpty()) ? IpLookupManager.getData(this.displayedNick) : null;
         boolean isFetching = this.queryPending || (lookupData != null && (lookupData.status == IpLookupManager.LookupStatus.WAITING_INFO || lookupData.status == IpLookupManager.LookupStatus.FETCHING_HISTORY));
 
         // Search button with tooltip & pending state
         class_4185 searchBtn = class_4185.method_46430(
-            class_2561.method_43470(isFetching ? "§7⏳ Поиск..." : "§e🔍 Запросить"),
+            class_2561.method_43470(isFetching ? "§7⏳ Поиск..." : "§e🔍 Запрос"),
             button -> triggerPlayerQuery()
-        ).method_46434(centerX - 20, inputY, 90, 20)
-         .method_46436(class_7919.method_47407(class_2561.method_43470("§eЗапросить историю сессий\n§7Поиск сессий игрока: §f" + this.currentNick + "\n§8(Клавиша Enter в поле)")))
+        ).method_46434(centerX + 6, inputY, 78, 20)
+         .method_46436(class_7919.method_47407(class_2561.method_43470("§eЗапросить историю сессий\n§7Поиск сессий игрока: §f" + (!this.currentNick.isEmpty() ? this.currentNick : "...") + "\n§8(Клавиша Enter в поле)")))
          .method_46431();
         searchBtn.field_22763 = !isFetching;
         this.method_37063(searchBtn);
 
         // Quick test Odinoky button
         this.method_37063(class_4185.method_46430(
-            class_2561.method_43470("§aТест: Odinoky"),
+            class_2561.method_43470("§aТест"),
             button -> {
                 this.currentNick = "Odinoky";
+                this.displayedNick = "Odinoky";
+                lastQueriedNick = "Odinoky";
                 this.currentPage = 0;
                 this.queryPending = false;
                 this.queryTimedOut = false;
@@ -212,7 +265,7 @@ public class IpCopyScreen extends class_437 {
                 }
                 this.rebuildWidgets();
             }
-        ).method_46434(centerX + 75, inputY, 90, 20)
+        ).method_46434(centerX + 88, inputY, 77, 20)
          .method_46436(class_7919.method_47407(class_2561.method_43470("§aЗагрузить тестовый профиль Odinoky\n§7Демонстрация профиля (UUID, VK, TG) и 6 сессий с подсетями /24")))
          .method_46431());
 
@@ -241,7 +294,7 @@ public class IpCopyScreen extends class_437 {
              .method_46431());
         }
 
-        List<PlayerIpEntry> entries = IpLookupManager.getEntries(this.currentNick);
+        List<PlayerIpEntry> entries = (!this.displayedNick.isEmpty()) ? IpLookupManager.getEntries(this.displayedNick) : java.util.Collections.emptyList();
         int totalEntries = entries.size();
         int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
 
@@ -662,11 +715,34 @@ public class IpCopyScreen extends class_437 {
         ).method_46434(centerX + 10, bottomY, 115, 20).method_46431());
     }
 
+    private void pasteFromClipboard() {
+        class_310 client = class_310.method_1551();
+        if (client != null && client.field_1774 != null) {
+            String raw = client.field_1774.method_1460();
+            if (raw != null && !raw.isEmpty()) {
+                String clean = sanitizeNick(raw);
+                if (!clean.isEmpty()) {
+                    this.currentNick = clean;
+                    if (this.nickField != null) {
+                        this.nickField.method_1852(clean);
+                        this.nickField.method_1884(clean.length());
+                        this.nickField.method_25365(true);
+                        this.method_25395(this.nickField);
+                    }
+                    this.rebuildWidgets();
+                }
+            }
+        }
+    }
+
     private void triggerPlayerQuery() {
         if (this.currentNick == null || this.currentNick.isEmpty()) {
             return;
         }
 
+        this.displayedNick = this.currentNick;
+        lastQueriedNick = this.currentNick;
+        this.currentPage = 0;
         this.queryPending = true;
         this.queryStartTime = System.currentTimeMillis();
         this.queryTimedOut = false;
@@ -719,10 +795,18 @@ public class IpCopyScreen extends class_437 {
                 }
             }
 
+            // Bulletproof Ctrl+V and Shift+Insert paste interceptor
+            boolean isCtrlV = (keyCode == 86 && (keyEvent.comp_4797() & 2) != 0);
+            boolean isShiftInsert = (keyCode == 279 && (keyEvent.comp_4797() & 1) != 0);
+            if ((isCtrlV || isShiftInsert) && this.activeTab == Tab.LOOKUP && this.nickField != null && this.nickField.method_25370()) {
+                pasteFromClipboard();
+                return true;
+            }
+
             // Arrow keys handle instant pagination when text field is not focused
             if ((this.activeTab == Tab.LOOKUP || this.activeTab == Tab.HISTORY) && (this.nickField == null || !this.nickField.method_25370())) {
                 if (this.activeTab == Tab.LOOKUP) {
-                    IpLookupManager.PlayerLookupData lookupData = IpLookupManager.getData(this.currentNick);
+                    IpLookupManager.PlayerLookupData lookupData = (!this.displayedNick.isEmpty()) ? IpLookupManager.getData(this.displayedNick) : null;
                     if (lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1) {
                         if (keyCode == 263 && lookupData.cmdPrev != null && lookupData.serverCurrentPage > 1) {
                             executeServerNavCommand(lookupData.cmdPrev);
@@ -741,7 +825,7 @@ public class IpCopyScreen extends class_437 {
                 }
 
                 int totalEntries = (this.activeTab == Tab.LOOKUP)
-                    ? IpLookupManager.getEntries(this.currentNick).size()
+                    ? ((!this.displayedNick.isEmpty()) ? IpLookupManager.getEntries(this.displayedNick).size() : 0)
                     : IpHistoryManager.size();
                 int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
 
@@ -764,7 +848,7 @@ public class IpCopyScreen extends class_437 {
         // Mouse wheel scroll flips pages in list tabs
         if (this.activeTab == Tab.LOOKUP || this.activeTab == Tab.HISTORY) {
             if (this.activeTab == Tab.LOOKUP) {
-                IpLookupManager.PlayerLookupData lookupData = IpLookupManager.getData(this.currentNick);
+                IpLookupManager.PlayerLookupData lookupData = (!this.displayedNick.isEmpty()) ? IpLookupManager.getData(this.displayedNick) : null;
                 if (lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1) {
                     if (verticalAmount < 0 && lookupData.cmdNext != null && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
                         executeServerNavCommand(lookupData.cmdNext);
@@ -777,7 +861,7 @@ public class IpCopyScreen extends class_437 {
             }
 
             int totalEntries = (this.activeTab == Tab.LOOKUP)
-                ? IpLookupManager.getEntries(this.currentNick).size()
+                ? ((!this.displayedNick.isEmpty()) ? IpLookupManager.getEntries(this.displayedNick).size() : 0)
                 : IpHistoryManager.size();
             int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
 
@@ -813,7 +897,7 @@ public class IpCopyScreen extends class_437 {
         int centerX = this.field_22789 / 2;
 
         if (this.activeTab == Tab.LOOKUP) {
-            IpLookupManager.PlayerLookupData data = IpLookupManager.getData(this.currentNick);
+            IpLookupManager.PlayerLookupData data = (!this.displayedNick.isEmpty()) ? IpLookupManager.getData(this.displayedNick) : null;
             IpLookupManager.LookupStatus status = data != null ? data.status : IpLookupManager.LookupStatus.IDLE;
             List<PlayerIpEntry> entries = data != null ? data.entries : java.util.Collections.emptyList();
             IpLookupManager.PlayerProfile profile = data != null ? data.profile : null;
@@ -845,7 +929,7 @@ public class IpCopyScreen extends class_437 {
                     context.method_25294(centerX - 188, 70, centerX + 188, 132, 0x40000000);
                     drawCenteredText(
                         context,
-                        class_2561.method_43470("§c✖ Указанный игрок §e" + this.currentNick + " §cне зарегистрирован!"),
+                        class_2561.method_43470("§c✖ Указанный игрок §e" + this.displayedNick + " §cне зарегистрирован!"),
                         centerX,
                         84,
                         0xFFFF5555
@@ -868,7 +952,7 @@ public class IpCopyScreen extends class_437 {
                     context.method_25294(centerX - 188, 62, centerX + 188, 146, 0x40000000);
                     drawCenteredText(
                         context,
-                        class_2561.method_43470("§a✔ Профиль §e" + this.currentNick + " §aнайден!"),
+                        class_2561.method_43470("§a✔ Профиль §e" + this.displayedNick + " §aнайден!"),
                         centerX,
                         72,
                         0xFF55FF55
@@ -899,7 +983,7 @@ public class IpCopyScreen extends class_437 {
                     );
                     drawCenteredText(
                         context,
-                        class_2561.method_43470("§7Ожидание ответа для §f" + this.currentNick + " §7(" + remainingSec + " сек)"),
+                        class_2561.method_43470("§7Ожидание ответа для §f" + this.displayedNick + " §7(" + remainingSec + " сек)"),
                         centerX,
                         100,
                         0xFFAAAAAA
@@ -924,7 +1008,7 @@ public class IpCopyScreen extends class_437 {
                     context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
                     drawCenteredText(
                         context,
-                        class_2561.method_43470("§eℹ У игрока §f" + this.currentNick + " §eнет сохраненных сессий."),
+                        class_2561.method_43470("§eℹ У игрока §f" + this.displayedNick + " §eнет сохраненных сессий."),
                         centerX,
                         88,
                         0xFFFFFF55
@@ -940,14 +1024,14 @@ public class IpCopyScreen extends class_437 {
                     context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
                     drawCenteredText(
                         context,
-                        class_2561.method_43470("§7Введите никнейм и нажмите §e'Запросить' §7или клавишу §aEnter"),
+                        class_2561.method_43470("§7Введите никнейм и нажмите §e'Запрос' §7или клавишу §aEnter"),
                         centerX,
                         88,
                         0xFFAAAAAA
                     );
                     drawCenteredText(
                         context,
-                        class_2561.method_43470("§8Или нажмите §a[Тест: Odinoky] §8для мгновенной демонстрации"),
+                        class_2561.method_43470("§8Или нажмите §a[Тест] §8для быстрой демонстрации интерфейса"),
                         centerX,
                         102,
                         0xFF888888
@@ -972,9 +1056,9 @@ public class IpCopyScreen extends class_437 {
                 String headerText;
                 if (profile != null && (!profile.telegram().equals("-") || !profile.vk().equals("-"))) {
                     String social = !profile.telegram().equals("-") ? ("§9TG: §b" + profile.telegram()) : ("§9VK: §b" + profile.vk());
-                    headerText = "§6Входы §e" + this.currentNick + " §7(" + totalEntries + ") §8| " + social;
+                    headerText = "§6Входы §e" + this.displayedNick + " §7(" + totalEntries + ") §8| " + social;
                 } else {
-                    headerText = "§6Входы игрока §e" + this.currentNick + " §7(Всего: " + totalEntries + "):";
+                    headerText = "§6Входы игрока §e" + this.displayedNick + " §7(Всего: " + totalEntries + "):";
                 }
 
                 drawText(
