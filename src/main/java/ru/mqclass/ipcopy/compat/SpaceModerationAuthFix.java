@@ -31,9 +31,12 @@ public final class SpaceModerationAuthFix {
             Path uidFile = Paths.get("config", "spacemoderation", "uid.txt");
             if (Files.exists(uidFile)) {
                 try (BufferedReader reader = Files.newBufferedReader(uidFile, StandardCharsets.UTF_8)) {
-                    String line = reader.readLine();
-                    if (line != null) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
                         line = line.trim();
+                        if (line.isEmpty() || line.startsWith("#")) {
+                            continue;
+                        }
                         if (line.contains(":")) {
                             String[] parts = line.split(":");
                             if (parts.length > 1 && !parts[1].trim().isEmpty()) {

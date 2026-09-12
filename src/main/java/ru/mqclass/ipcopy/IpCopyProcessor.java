@@ -198,7 +198,7 @@ public final class IpCopyProcessor {
 
             appendLineButtons(rebuilt, ipsByLine, lineIndex[0]);
             return rebuilt;
-        } catch (RuntimeException exception) {
+        } catch (Throwable exception) {
             if (ERROR_REPORTED.compareAndSet(false, true)) {
                 System.err.println("[IPCopy] Failed to process a chat component; the original message was preserved.");
                 exception.printStackTrace(System.err);
