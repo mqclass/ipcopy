@@ -59,6 +59,12 @@ public class IpCopyScreen extends class_437 {
     private boolean isNavigatingServerPage = false;
     private long serverNavStartTime = 0L;
 
+    // Server page navigation buttons for dynamic real-time cooldown updates
+    private class_4185 btnServerFirst;
+    private class_4185 btnServerPrev;
+    private class_4185 btnServerNext;
+    private class_4185 btnServerLast;
+
     private boolean canSendServerNavCommand() {
         return !this.isNavigatingServerPage && (System.currentTimeMillis() - this.lastServerNavTime >= SERVER_NAV_COOLDOWN_MS);
     }
@@ -70,8 +76,37 @@ public class IpCopyScreen extends class_437 {
         this.isNavigatingServerPage = true;
         this.serverNavStartTime = this.lastServerNavTime;
 
+        // Immediately disable buttons for visual feedback without full screen rebuild
+        if (this.btnServerFirst != null) this.btnServerFirst.field_22763 = false;
+        if (this.btnServerPrev != null) this.btnServerPrev.field_22763 = false;
+        if (this.btnServerNext != null) this.btnServerNext.field_22763 = false;
+        if (this.btnServerLast != null) this.btnServerLast.field_22763 = false;
+
         IpLookupManager.executeServerCommand(cmd);
-        this.rebuildWidgets();
+    }
+
+    private String getServerNavFirstCmd(IpLookupManager.PlayerLookupData data) {
+        if (data == null) return null;
+        if (data.cmdFirst != null) return data.cmdFirst;
+        return !this.displayedNick.isEmpty() ? ("auth find login by player " + this.displayedNick + " 1") : null;
+    }
+
+    private String getServerNavPrevCmd(IpLookupManager.PlayerLookupData data) {
+        if (data == null) return null;
+        if (data.cmdPrev != null) return data.cmdPrev;
+        return !this.displayedNick.isEmpty() ? ("auth find login by player " + this.displayedNick + " " + (data.serverCurrentPage - 1)) : null;
+    }
+
+    private String getServerNavNextCmd(IpLookupManager.PlayerLookupData data) {
+        if (data == null) return null;
+        if (data.cmdNext != null) return data.cmdNext;
+        return !this.displayedNick.isEmpty() ? ("auth find login by player " + this.displayedNick + " " + (data.serverCurrentPage + 1)) : null;
+    }
+
+    private String getServerNavLastCmd(IpLookupManager.PlayerLookupData data) {
+        if (data == null) return null;
+        if (data.cmdLast != null) return data.cmdLast;
+        return !this.displayedNick.isEmpty() ? ("auth find login by player " + this.displayedNick + " " + data.serverTotalPages) : null;
     }
 
     public static String sanitizeNick(String raw) {
@@ -126,6 +161,10 @@ public class IpCopyScreen extends class_437 {
     }
 
     private void rebuildWidgets() {
+        this.btnServerFirst = null;
+        this.btnServerPrev = null;
+        this.btnServerNext = null;
+        this.btnServerLast = null;
         this.method_37067();
         setupWidgets();
     }
@@ -340,54 +379,58 @@ public class IpCopyScreen extends class_437 {
             if (hasServerPages) {
                 int paginationY = 178;
                 boolean canNav = canSendServerNavCommand();
+                String cmdFirst = getServerNavFirstCmd(lookupData);
+                String cmdPrev = getServerNavPrevCmd(lookupData);
+                String cmdNext = getServerNavNextCmd(lookupData);
+                String cmdLast = getServerNavLastCmd(lookupData);
 
                 // [⏮] First page
-                class_4185 firstBtn = class_4185.method_46430(
+                this.btnServerFirst = class_4185.method_46430(
                     class_2561.method_43470("§f⏮"),
-                    button -> executeServerNavCommand(lookupData.cmdFirst)
+                    button -> executeServerNavCommand(cmdFirst)
                 ).method_46434(centerX - 87, paginationY, 22, 18)
                  .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eПервая страница (1/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (lookupData.cmdFirst != null ? lookupData.cmdFirst : "—")
+                     "§eПервая страница (1/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (cmdFirst != null ? cmdFirst : "—")
                  )))
                  .method_46431();
-                firstBtn.field_22763 = canNav && lookupData.cmdFirst != null && lookupData.serverCurrentPage > 1;
-                this.method_37063(firstBtn);
+                this.btnServerFirst.field_22763 = canNav && lookupData.serverCurrentPage > 1;
+                this.method_37063(this.btnServerFirst);
 
                 // [◀] Previous page
-                class_4185 prevBtn = class_4185.method_46430(
+                this.btnServerPrev = class_4185.method_46430(
                     class_2561.method_43470("§f◀"),
-                    button -> executeServerNavCommand(lookupData.cmdPrev)
+                    button -> executeServerNavCommand(cmdPrev)
                 ).method_46434(centerX - 62, paginationY, 22, 18)
                  .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eПредыдущая страница\n§7Команда: §f" + (lookupData.cmdPrev != null ? lookupData.cmdPrev : "—")
+                     "§eПредыдущая страница\n§7Команда: §f" + (cmdPrev != null ? cmdPrev : "—")
                  )))
                  .method_46431();
-                prevBtn.field_22763 = canNav && lookupData.cmdPrev != null && lookupData.serverCurrentPage > 1;
-                this.method_37063(prevBtn);
+                this.btnServerPrev.field_22763 = canNav && lookupData.serverCurrentPage > 1;
+                this.method_37063(this.btnServerPrev);
 
                 // [▶] Next page
-                class_4185 nextBtn = class_4185.method_46430(
+                this.btnServerNext = class_4185.method_46430(
                     class_2561.method_43470("§f▶"),
-                    button -> executeServerNavCommand(lookupData.cmdNext)
+                    button -> executeServerNavCommand(cmdNext)
                 ).method_46434(centerX + 40, paginationY, 22, 18)
                  .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eСледующая страница\n§7Команда: §f" + (lookupData.cmdNext != null ? lookupData.cmdNext : "—")
+                     "§eСледующая страница\n§7Команда: §f" + (cmdNext != null ? cmdNext : "—")
                  )))
                  .method_46431();
-                nextBtn.field_22763 = canNav && lookupData.cmdNext != null && lookupData.serverCurrentPage < lookupData.serverTotalPages;
-                this.method_37063(nextBtn);
+                this.btnServerNext.field_22763 = canNav && lookupData.serverCurrentPage < lookupData.serverTotalPages;
+                this.method_37063(this.btnServerNext);
 
                 // [⏭] Last page
-                class_4185 lastBtn = class_4185.method_46430(
+                this.btnServerLast = class_4185.method_46430(
                     class_2561.method_43470("§f⏭"),
-                    button -> executeServerNavCommand(lookupData.cmdLast)
+                    button -> executeServerNavCommand(cmdLast)
                 ).method_46434(centerX + 65, paginationY, 22, 18)
                  .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eПоследняя страница (" + lookupData.serverTotalPages + "/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (lookupData.cmdLast != null ? lookupData.cmdLast : "—")
+                     "§eПоследняя страница (" + lookupData.serverTotalPages + "/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (cmdLast != null ? cmdLast : "—")
                  )))
                  .method_46431();
-                lastBtn.field_22763 = canNav && lookupData.cmdLast != null && lookupData.serverCurrentPage < lookupData.serverTotalPages;
-                this.method_37063(lastBtn);
+                this.btnServerLast.field_22763 = canNav && lookupData.serverCurrentPage < lookupData.serverTotalPages;
+                this.method_37063(this.btnServerLast);
             } else if (maxPages > 1) {
                 int paginationY = 178;
 
@@ -808,17 +851,17 @@ public class IpCopyScreen extends class_437 {
                 if (this.activeTab == Tab.LOOKUP) {
                     IpLookupManager.PlayerLookupData lookupData = (!this.displayedNick.isEmpty()) ? IpLookupManager.getData(this.displayedNick) : null;
                     if (lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1) {
-                        if (keyCode == 263 && lookupData.cmdPrev != null && lookupData.serverCurrentPage > 1) {
-                            executeServerNavCommand(lookupData.cmdPrev);
+                        if (keyCode == 263 && lookupData.serverCurrentPage > 1) {
+                            executeServerNavCommand(getServerNavPrevCmd(lookupData));
                             return true;
-                        } else if (keyCode == 262 && lookupData.cmdNext != null && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
-                            executeServerNavCommand(lookupData.cmdNext);
+                        } else if (keyCode == 262 && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
+                            executeServerNavCommand(getServerNavNextCmd(lookupData));
                             return true;
-                        } else if (keyCode == 268 && lookupData.cmdFirst != null && lookupData.serverCurrentPage > 1) {
-                            executeServerNavCommand(lookupData.cmdFirst);
+                        } else if (keyCode == 268 && lookupData.serverCurrentPage > 1) {
+                            executeServerNavCommand(getServerNavFirstCmd(lookupData));
                             return true;
-                        } else if (keyCode == 269 && lookupData.cmdLast != null && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
-                            executeServerNavCommand(lookupData.cmdLast);
+                        } else if (keyCode == 269 && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
+                            executeServerNavCommand(getServerNavLastCmd(lookupData));
                             return true;
                         }
                     }
@@ -850,11 +893,11 @@ public class IpCopyScreen extends class_437 {
             if (this.activeTab == Tab.LOOKUP) {
                 IpLookupManager.PlayerLookupData lookupData = (!this.displayedNick.isEmpty()) ? IpLookupManager.getData(this.displayedNick) : null;
                 if (lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1) {
-                    if (verticalAmount < 0 && lookupData.cmdNext != null && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
-                        executeServerNavCommand(lookupData.cmdNext);
+                    if (verticalAmount < 0 && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
+                        executeServerNavCommand(getServerNavNextCmd(lookupData));
                         return true;
-                    } else if (verticalAmount > 0 && lookupData.cmdPrev != null && lookupData.serverCurrentPage > 1) {
-                        executeServerNavCommand(lookupData.cmdPrev);
+                    } else if (verticalAmount > 0 && lookupData.serverCurrentPage > 1) {
+                        executeServerNavCommand(getServerNavPrevCmd(lookupData));
                         return true;
                     }
                 }
@@ -1104,8 +1147,13 @@ public class IpCopyScreen extends class_437 {
                     long elapsed = System.currentTimeMillis() - this.lastServerNavTime;
                     if (this.isNavigatingServerPage && (System.currentTimeMillis() - this.serverNavStartTime > 4000L)) {
                         this.isNavigatingServerPage = false;
-                        this.rebuildWidgets();
                     }
+
+                    boolean canNav = canSendServerNavCommand();
+                    if (this.btnServerFirst != null) this.btnServerFirst.field_22763 = canNav && data.serverCurrentPage > 1;
+                    if (this.btnServerPrev != null) this.btnServerPrev.field_22763 = canNav && data.serverCurrentPage > 1;
+                    if (this.btnServerNext != null) this.btnServerNext.field_22763 = canNav && data.serverCurrentPage < data.serverTotalPages;
+                    if (this.btnServerLast != null) this.btnServerLast.field_22763 = canNav && data.serverCurrentPage < data.serverTotalPages;
 
                     String pageStatus;
                     if (this.isNavigatingServerPage) {
@@ -1222,6 +1270,10 @@ public class IpCopyScreen extends class_437 {
     public void method_25432() {
         super.method_25432();
         // Guaranteed cleanup on screen dismissal to avoid memory leaks
+        this.btnServerFirst = null;
+        this.btnServerPrev = null;
+        this.btnServerNext = null;
+        this.btnServerLast = null;
         IpLookupManager.setUpdateListener(null);
         IpCopyConfig.save();
     }
