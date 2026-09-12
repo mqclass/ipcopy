@@ -68,7 +68,7 @@ public final class IpLookupManager {
         });
 
     private static final Pattern NICK_INFO_PATTERN = Pattern.compile(
-        "Ник:\\s*(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16})",
+        "Ник:\\s*[^A-Za-z0-9_]*(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16})",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
     );
 
@@ -98,12 +98,12 @@ public final class IpLookupManager {
     );
 
     private static final Pattern NOT_REGISTERED_PATTERN = Pattern.compile(
-        "(?:Указанный\\s+)?игрок,?\\s*(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16}),?\\s+не\\s+(?:зарегистрирован|зарегестрирован|найден)",
+        "(?:Указанный\\s+)?игрок,?\\s*[^A-Za-z0-9_]*(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16}),?\\s+не\\s+(?:зарегистрирован|зарегестрирован|найден)",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
     );
 
     private static final Pattern LOGINS_HEADER_PATTERN = Pattern.compile(
-        "(?:Входы|Авторизации|История входов|Logins of)\\s+(?:игрока\\s+)?(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16})",
+        "(?:Входы|Авторизации|История входов|Logins of)\\s+(?:игрока\\s+)?[^A-Za-z0-9_]*(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16})",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
     );
 
@@ -113,7 +113,11 @@ public final class IpLookupManager {
 
     private static volatile String activeQueryNick = null;
     private static volatile long activeQueryTime = 0L;
+    private static volatile String activeHistoryNick = null;
+    private static volatile long activeHistoryStartTime = 0L;
     private static volatile Consumer<String> updateListener = null;
+    private static volatile long lastAutoFetchTime = 0L;
+    private static volatile String lastAutoFetchCmd = "";
 
     static {
         // Pre-fill Odinoky profile from actual server format
@@ -235,6 +239,7 @@ public final class IpLookupManager {
                 nick = activeQueryNick;
             }
             if (nick != null) {
+                activeHistoryNick = null;
                 PlayerLookupData data = getOrCreateData(nick);
                 data.entries.clear();
                 data.profile = null;
@@ -279,17 +284,32 @@ public final class IpLookupManager {
                     clickCmd = findAnyAuthClickCommand(message);
                 }
                 if (clickCmd == null) {
-                    clickCmd = "auth player " + nick + " logins";
+                    clickCmd = "auth find login by player " + nick;
                 }
                 data.followUpCommand = clickCmd;
 
-                // If user initiated a query, automatically fetch the login history!
-                if (isQueryPending(nick) || (activeQueryNick != null && activeQueryNick.equalsIgnoreCase(nick))) {
-                    class_310 client = class_310.method_1551();
-                    if (client != null && client.method_1562() != null && clickCmd != null) {
-                        String cmd = clickCmd.startsWith("/") ? clickCmd.substring(1) : clickCmd;
-                        client.method_1562().method_45730(cmd);
-                    }
+                // If user initiated a query or checked a profile, automatically fetch the login history with a safe 1300ms delay
+                boolean shouldAutoFetch = (activeQueryNick == null || isQueryPending(nick) || activeQueryNick.equalsIgnoreCase(nick));
+                long now = System.currentTimeMillis();
+
+                if (shouldAutoFetch && clickCmd != null && (now - lastAutoFetchTime > 3000L || !clickCmd.equalsIgnoreCase(lastAutoFetchCmd))) {
+                    lastAutoFetchTime = now;
+                    lastAutoFetchCmd = clickCmd;
+
+                    final String finalCmd = clickCmd.startsWith("/") ? clickCmd.substring(1) : clickCmd;
+
+                    // Delay follow-up command by 1300ms so the server spam filter never outputs "Подождите 1 сек"
+                    java.util.concurrent.CompletableFuture.delayedExecutor(1300, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        .execute(() -> {
+                            class_310 client = class_310.method_1551();
+                            if (client != null) {
+                                client.execute(() -> {
+                                    if (client.method_1562() != null) {
+                                        client.method_1562().method_45730(finalCmd);
+                                    }
+                                });
+                            }
+                        });
                 }
 
                 notifyListener(nick);
@@ -297,66 +317,66 @@ public final class IpLookupManager {
             return;
         }
 
-        // Case 3: "Входы игрока [head]nick (28/28)"
-        String targetNick = null;
+        // Case 3: Logins header: "----- Входы игрока [head]nick (28/28) -----"
         Matcher loginsHeaderMatcher = LOGINS_HEADER_PATTERN.matcher(cleanText);
         if (loginsHeaderMatcher.find()) {
-            targetNick = loginsHeaderMatcher.group(1);
-        } else if (activeQueryNick != null && (System.currentTimeMillis() - activeQueryTime) < 5000L) {
+            String nick = loginsHeaderMatcher.group(1);
+            if (nick != null) {
+                activeHistoryNick = nick;
+                activeHistoryStartTime = System.currentTimeMillis();
+                PlayerLookupData data = getOrCreateData(nick);
+                data.entries.clear();
+                data.status = LookupStatus.FOUND;
+                data.lastUpdated = System.currentTimeMillis();
+                notifyListener(nick);
+            }
+        }
+
+        // Case 4: Streaming session entries: "├ 11-09-2026 23:50 · 185.230.240.209 · session"
+        String targetNick = activeHistoryNick;
+        if (targetNick == null && activeQueryNick != null && (System.currentTimeMillis() - activeQueryTime) < 5000L) {
+            targetNick = activeQueryNick;
+        }
+
+        if (targetNick != null && (System.currentTimeMillis() - activeHistoryStartTime < 5000L || System.currentTimeMillis() - activeQueryTime < 5000L)) {
             String lower = cleanText.toLowerCase(Locale.ROOT);
             boolean isAnticheat = lower.contains("sac") || lower.contains("античит") || lower.contains("anticheat");
-            if (!isAnticheat && (lower.contains("вход") || lower.contains("сессия") || lower.contains("session") || lower.contains("login") || DATE_PATTERN.matcher(cleanText).find())) {
-                targetNick = activeQueryNick;
+            if (!isAnticheat) {
+                String[] lines = cleanText.split("\n");
+                boolean addedAny = false;
+                PlayerLookupData data = getOrCreateData(targetNick);
+
+                for (String line : lines) {
+                    List<String> ips = IpCopyProcessor.extractIps(line);
+                    if (ips.isEmpty()) {
+                        continue;
+                    }
+
+                    String ip = ips.get(0);
+                    String date = "Неизвестно";
+                    Matcher dateMatcher = DATE_PATTERN.matcher(line);
+                    if (dateMatcher.find()) {
+                        date = dateMatcher.group(1);
+                    }
+
+                    String type = line.toLowerCase(Locale.ROOT).contains("session") ? "session" : "login";
+                    PlayerIpEntry newEntry = new PlayerIpEntry(date, ip, type);
+                    if (!data.entries.contains(newEntry)) {
+                        data.entries.add(newEntry);
+                        addedAny = true;
+                    }
+                }
+
+                if (addedAny) {
+                    data.status = LookupStatus.FOUND;
+                    data.lastUpdated = System.currentTimeMillis();
+                    notifyListener(targetNick);
+                } else if (cleanText.contains("(0/0)") || cleanText.contains("(0/") || lower.contains("нет записей") || lower.contains("нет сессий")) {
+                    data.status = LookupStatus.NO_HISTORY;
+                    data.lastUpdated = System.currentTimeMillis();
+                    notifyListener(targetNick);
+                }
             }
-        }
-
-        if (targetNick == null) {
-            return;
-        }
-
-        String[] lines = cleanText.split("\n");
-        List<PlayerIpEntry> parsedEntries = new ArrayList<>();
-
-        for (String line : lines) {
-            List<String> ips = IpCopyProcessor.extractIps(line);
-            if (ips.isEmpty()) {
-                continue;
-            }
-
-            String ip = ips.get(0);
-            String date = "Неизвестно";
-            Matcher dateMatcher = DATE_PATTERN.matcher(line);
-            if (dateMatcher.find()) {
-                date = dateMatcher.group(1);
-            }
-
-            String type = line.toLowerCase(Locale.ROOT).contains("session") ? "session" : "login";
-            parsedEntries.add(new PlayerIpEntry(date, ip, type));
-        }
-
-        if (!parsedEntries.isEmpty()) {
-            PlayerLookupData data = getOrCreateData(targetNick);
-            data.entries.clear();
-            data.entries.addAll(parsedEntries);
-            data.status = LookupStatus.FOUND;
-            data.lastUpdated = System.currentTimeMillis();
-
-            if (activeQueryNick != null && activeQueryNick.equalsIgnoreCase(targetNick)) {
-                activeQueryNick = null;
-            }
-
-            notifyListener(targetNick);
-        } else if (cleanText.contains("(0/0)") || cleanText.contains("(0/") || cleanText.toLowerCase(Locale.ROOT).contains("нет записей") || cleanText.toLowerCase(Locale.ROOT).contains("нет сессий")) {
-            PlayerLookupData data = getOrCreateData(targetNick);
-            data.entries.clear();
-            data.status = LookupStatus.NO_HISTORY;
-            data.lastUpdated = System.currentTimeMillis();
-
-            if (activeQueryNick != null && activeQueryNick.equalsIgnoreCase(targetNick)) {
-                activeQueryNick = null;
-            }
-
-            notifyListener(targetNick);
         }
     }
 

@@ -48,8 +48,8 @@ public final class IpToast implements class_368 {
         context.method_25294(width - 1, 0, width, height, 0xFFFFAA00);
 
         if (textRenderer != null) {
-            context.method_27534(textRenderer, this.title, 8, 6, 0xFFFFAA00);
-            context.method_27534(textRenderer, this.description, 8, 18, 0xFFFFFFFF);
+            context.method_27535(textRenderer, this.title, 8, 6, 0xFFFFAA00);
+            context.method_27535(textRenderer, this.description, 8, 18, 0xFFFFFFFF);
         }
     }
 

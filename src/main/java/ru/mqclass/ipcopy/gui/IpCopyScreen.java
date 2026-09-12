@@ -661,6 +661,16 @@ public class IpCopyScreen extends class_437 {
         return super.method_25401(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
+    private void drawText(class_332 context, class_2561 text, int x, int y, int color) {
+        int argb = (color & 0xFF000000) != 0 ? color : (0xFF000000 | color);
+        context.method_27535(this.field_22793, text, x, y, argb);
+    }
+
+    private void drawCenteredText(class_332 context, class_2561 text, int centerX, int y, int color) {
+        int argb = (color & 0xFF000000) != 0 ? color : (0xFF000000 | color);
+        context.method_27534(this.field_22793, text, centerX, y, argb);
+    }
+
     @Override
     public void method_25394(class_332 context, int mouseX, int mouseY, float delta) {
         super.method_25394(context, mouseX, mouseY, delta);
@@ -698,114 +708,114 @@ public class IpCopyScreen extends class_437 {
             if (entries.isEmpty()) {
                 if (status == IpLookupManager.LookupStatus.NOT_REGISTERED) {
                     context.method_25294(centerX - 188, 70, centerX + 188, 132, 0x40000000);
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§c✖ Указанный игрок §e" + this.currentNick + " §cне зарегистрирован!"),
                         centerX,
                         84,
-                        0xFF5555
+                        0xFFFF5555
                     );
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§7Сервер SpaceTimes сообщил: игрок не найден в базе данных авторизаций."),
                         centerX,
                         99,
-                        0xAAAAAA
+                        0xFFAAAAAA
                     );
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§8Проверьте регистр букв или правильность написания никнейма."),
                         centerX,
                         113,
-                        0x888888
+                        0xFF888888
                     );
                 } else if (status == IpLookupManager.LookupStatus.FETCHING_HISTORY) {
                     context.method_25294(centerX - 188, 62, centerX + 188, 146, 0x40000000);
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§a✔ Профиль §e" + this.currentNick + " §aнайден!"),
                         centerX,
                         72,
-                        0x55FF55
+                        0xFF55FF55
                     );
                     if (profile != null) {
                         String line1 = "§7UUID: §8" + profile.uuid() + " §7| Прем: §f" + profile.premium();
                         String line2 = "§9VK: §b" + profile.vk() + " §8| §9TG: §b" + profile.telegram() + " §8| §9DS: §b" + profile.discord();
-                        context.method_27535(this.field_22793, class_2561.method_43470(line1), centerX, 87, 0xFFFFFF);
-                        context.method_27535(this.field_22793, class_2561.method_43470(line2), centerX, 101, 0xFFFFFF);
+                        drawCenteredText(context, class_2561.method_43470(line1), centerX, 87, 0xFFFFFFFF);
+                        drawCenteredText(context, class_2561.method_43470(line2), centerX, 101, 0xFFFFFFFF);
                     }
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§e⏳ Загрузка истории входов... §8(авто-переход по ► Посмотреть историю ◄)"),
                         centerX,
                         122,
-                        0xFFFF55
+                        0xFFFFFF55
                     );
                 } else if (this.queryPending || status == IpLookupManager.LookupStatus.WAITING_INFO) {
                     long elapsed = System.currentTimeMillis() - this.queryStartTime;
                     int remainingSec = Math.max(1, (int) Math.ceil((QUERY_TIMEOUT_MS - elapsed) / 1000.0));
                     context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§e⏳ Запрос отправлен серверу..."),
                         centerX,
                         85,
-                        0xFFFF55
+                        0xFFFFFF55
                     );
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§7Ожидание ответа для §f" + this.currentNick + " §7(" + remainingSec + " сек)"),
                         centerX,
                         100,
-                        0xAAAAAA
+                        0xFFAAAAAA
                     );
                 } else if (this.queryTimedOut || status == IpLookupManager.LookupStatus.TIMED_OUT) {
                     context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§c⚠ Сервер не ответил за 5 секунд."),
                         centerX,
                         85,
-                        0xFF5555
+                        0xFFFF5555
                     );
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§7Возможно, у вас нет прав на просмотр сессий, либо сервер не ответил на запрос."),
                         centerX,
                         100,
-                        0xAAAAAA
+                        0xFFAAAAAA
                     );
                 } else if (status == IpLookupManager.LookupStatus.NO_HISTORY) {
                     context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§eℹ У игрока §f" + this.currentNick + " §eнет сохраненных сессий."),
                         centerX,
                         88,
-                        0xFFFF55
+                        0xFFFFFF55
                     );
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§7Сервер не вернул историю входов для этого аккаунта."),
                         centerX,
                         102,
-                        0xAAAAAA
+                        0xFFAAAAAA
                     );
                 } else {
                     context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§7Введите никнейм и нажмите §e'Запросить' §7или клавишу §aEnter"),
                         centerX,
                         88,
-                        0xAAAAAA
+                        0xFFAAAAAA
                     );
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§8Или нажмите §a[Тест: Odinoky] §8для мгновенной демонстрации"),
                         centerX,
                         102,
-                        0x666666
+                        0xFF888888
                     );
                 }
             } else {
@@ -832,12 +842,12 @@ public class IpCopyScreen extends class_437 {
                     headerText = "§6Входы игрока §e" + this.currentNick + " §7(Всего: " + totalEntries + "):";
                 }
 
-                context.method_27534(
-                    this.field_22793,
+                drawText(
+                    context,
                     class_2561.method_43470(headerText),
                     centerX - 185,
                     54,
-                    0xFFFFFF
+                    0xFFFFFFFF
                 );
 
                 int startRowY = 70;
@@ -852,30 +862,30 @@ public class IpCopyScreen extends class_437 {
 
                     // Col 1: Index and Date
                     String indexAndDate = "§f" + (i + 1) + ". §a" + entry.date();
-                    context.method_27534(this.field_22793, class_2561.method_43470(indexAndDate), centerX - 182, rowY + 4, 0xFFFFFF);
+                    drawText(context, class_2561.method_43470(indexAndDate), centerX - 182, rowY + 4, 0xFFFFFFFF);
 
                     // Col 2: IP Address
-                    context.method_27534(this.field_22793, class_2561.method_43470("§e" + entry.ip()), centerX - 78, rowY + 4, 0xFFFF55);
+                    drawText(context, class_2561.method_43470("§e" + entry.ip()), centerX - 78, rowY + 4, 0xFFFFFF55);
 
                     // Col 3: Subnet badge if shared with other sessions, otherwise session type
                     String subnet = SubnetMatcher.getSubnet24String(entry.ip());
                     boolean isDupeSubnet = highlightSubnets && subnetCounts.getOrDefault(subnet, 0) > 1;
 
                     if (isDupeSubnet) {
-                        context.method_27534(this.field_22793, class_2561.method_43470("§d[⚡/24]"), centerX + 12, rowY + 4, 0xFFAAFF);
+                        drawText(context, class_2561.method_43470("§d[⚡/24]"), centerX + 12, rowY + 4, 0xFFFFAAFF);
                     } else {
-                        context.method_27534(this.field_22793, class_2561.method_43470("§8[" + entry.sessionType() + "]"), centerX + 12, rowY + 4, 0x888888);
+                        drawText(context, class_2561.method_43470("§8[" + entry.sessionType() + "]"), centerX + 12, rowY + 4, 0xFF888888);
                     }
                 }
 
                 // Page indicator between arrows
                 if (maxPages > 1) {
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§7Стр. §e" + (this.currentPage + 1) + "§7/§e" + maxPages),
-                        centerX - 11,
+                        centerX,
                         183,
-                        0xFFFFFF
+                        0xFFFFFFFF
                     );
                 }
             }
@@ -884,19 +894,19 @@ public class IpCopyScreen extends class_437 {
             int totalEntries = history.size();
 
             if (history.isEmpty()) {
-                context.method_27535(
-                    this.field_22793,
+                drawCenteredText(
+                    context,
                     class_2561.method_43470("§7История скопированных IP в этой сессии пуста."),
                     centerX,
                     95,
-                    0xAAAAAA
+                    0xFFAAAAAA
                 );
-                context.method_27535(
-                    this.field_22793,
+                drawCenteredText(
+                    context,
                     class_2561.method_43470("§8Копируйте IP в чате или через дашборд — они сразу появятся здесь!"),
                     centerX,
                     110,
-                    0x666666
+                    0xFF888888
                 );
             } else {
                 int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
@@ -905,12 +915,12 @@ public class IpCopyScreen extends class_437 {
                 context.method_25294(centerX - 188, 52, centerX + 188, 164, 0x40000000);
 
                 // Table header
-                context.method_27534(
-                    this.field_22793,
+                drawText(
+                    context,
                     class_2561.method_43470("§6История скопированных IP §7(Всего: " + totalEntries + "):"),
                     centerX - 185,
                     40,
-                    0xFFFFFF
+                    0xFFFFFFFF
                 );
 
                 int startRowY = 56;
@@ -924,34 +934,34 @@ public class IpCopyScreen extends class_437 {
                     int rowY = startRowY + (rowOffset * rowHeight);
 
                     // Col 1: Formatted time
-                    context.method_27534(this.field_22793, class_2561.method_43470("§8[" + entry.getFormattedTime() + "]"), centerX - 182, rowY + 4, 0x888888);
+                    drawText(context, class_2561.method_43470("§8[" + entry.getFormattedTime() + "]"), centerX - 182, rowY + 4, 0xFF888888);
 
                     // Col 2: IP Address
-                    context.method_27534(this.field_22793, class_2561.method_43470("§e" + entry.ip()), centerX - 124, rowY + 4, 0xFFFF55);
+                    drawText(context, class_2561.method_43470("§e" + entry.ip()), centerX - 124, rowY + 4, 0xFFFFFF55);
 
                     // Col 3: Subnet /24 micro badge
-                    context.method_27534(this.field_22793, class_2561.method_43470("§b/24"), centerX - 24, rowY + 4, 0x55FFFF);
+                    drawText(context, class_2561.method_43470("§b/24"), centerX - 24, rowY + 4, 0xFF55FFFF);
                 }
 
                 // Page indicator between arrows
                 if (maxPages > 1) {
-                    context.method_27535(
-                        this.field_22793,
+                    drawCenteredText(
+                        context,
                         class_2561.method_43470("§7Стр. §e" + (this.currentPage + 1) + "§7/§e" + maxPages),
-                        centerX - 11,
+                        centerX,
                         173,
-                        0xFFFFFF
+                        0xFFFFFFFF
                     );
                 }
             }
         } else {
             int footerY = this.field_22790 - 42;
-            context.method_27535(
-                this.field_22793,
+            drawCenteredText(
+                context,
                 class_2561.method_43470("§8Настройки сохраняются автоматически в config/ipcopy.json"),
                 centerX,
                 footerY,
-                0x888888
+                0xFF888888
             );
         }
     }
