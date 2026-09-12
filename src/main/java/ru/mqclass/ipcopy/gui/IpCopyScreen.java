@@ -41,7 +41,7 @@ public class IpCopyScreen extends class_437 {
     private final class_437 parent;
     private Tab activeTab = Tab.LOOKUP;
     private class_342 nickField;
-    private String currentNick = "DiNoKy";
+    private String currentNick = "Odinoky";
 
     // Pagination state
     private int currentPage = 0;
@@ -54,6 +54,7 @@ public class IpCopyScreen extends class_437 {
     public IpCopyScreen(class_437 parent) {
         super(class_2561.method_43470("IP Copy — Панель модератора"));
         this.parent = parent;
+        this.currentNick = "Odinoky";
     }
 
     public IpCopyScreen(class_437 parent, String initialNick) {
@@ -65,6 +66,8 @@ public class IpCopyScreen extends class_437 {
                 sanitized = sanitized.substring(0, 16);
             }
             this.currentNick = sanitized;
+        } else {
+            this.currentNick = "Odinoky";
         }
     }
 
@@ -161,32 +164,60 @@ public class IpCopyScreen extends class_437 {
         this.method_25395(this.nickField);
         this.nickField.method_25365(true);
 
+        IpLookupManager.PlayerLookupData lookupData = IpLookupManager.getData(this.currentNick);
+        boolean isFetching = this.queryPending || (lookupData != null && (lookupData.status == IpLookupManager.LookupStatus.WAITING_INFO || lookupData.status == IpLookupManager.LookupStatus.FETCHING_HISTORY));
+
         // Search button with tooltip & pending state
         class_4185 searchBtn = class_4185.method_46430(
-            class_2561.method_43470(this.queryPending ? "§7⏳ Поиск..." : "§e🔍 Запросить"),
+            class_2561.method_43470(isFetching ? "§7⏳ Поиск..." : "§e🔍 Запросить"),
             button -> triggerPlayerQuery()
         ).method_46434(centerX - 20, inputY, 90, 20)
          .method_46436(class_7919.method_47407(class_2561.method_43470("§eЗапросить историю сессий\n§7Поиск сессий игрока: §f" + this.currentNick + "\n§8(Клавиша Enter в поле)")))
          .method_46431();
-        searchBtn.field_22763 = !this.queryPending;
+        searchBtn.field_22763 = !isFetching;
         this.method_37063(searchBtn);
 
-        // Quick test DiNoKy button
+        // Quick test Odinoky button
         this.method_37063(class_4185.method_46430(
-            class_2561.method_43470("§aТест: DiNoKy"),
+            class_2561.method_43470("§aТест: Odinoky"),
             button -> {
-                this.currentNick = "DiNoKy";
+                this.currentNick = "Odinoky";
                 this.currentPage = 0;
                 this.queryPending = false;
                 this.queryTimedOut = false;
                 if (this.nickField != null) {
-                    this.nickField.method_1852("DiNoKy");
+                    this.nickField.method_1852("Odinoky");
                 }
                 this.rebuildWidgets();
             }
         ).method_46434(centerX + 75, inputY, 90, 20)
-         .method_46436(class_7919.method_47407(class_2561.method_43470("§aЗагрузить тестовые данные сессий\n§7Демонстрационный профиль игрока DiNoKy")))
+         .method_46436(class_7919.method_47407(class_2561.method_43470("§aЗагрузить тестовый профиль Odinoky\n§7Демонстрация профиля (UUID, VK, TG) и 6 сессий с подсетями /24")))
          .method_46431());
+
+        // Profile Info button with rich tooltip and 1-click UUID copy
+        if (lookupData != null && lookupData.profile != null) {
+            IpLookupManager.PlayerProfile profile = lookupData.profile;
+            String tooltipText = "§6§lИнформация об игроке\n" +
+                "§7Ник: §f" + profile.nick() + "\n" +
+                "§7UUID: §8" + profile.uuid() + "\n" +
+                "§7Премиум: §f" + profile.premium() + "\n" +
+                "§7VK: §b" + profile.vk() + "\n" +
+                "§7Telegram: §b" + profile.telegram() + "\n" +
+                "§7Discord: §8" + profile.discord() + "\n" +
+                "§e(Нажмите, чтобы скопировать UUID)";
+
+            this.method_37063(class_4185.method_46430(
+                class_2561.method_43470("§bℹ Инфо"),
+                btn -> {
+                    if (profile.uuid() != null && !profile.uuid().isEmpty()) {
+                        copyToClipboard(profile.uuid());
+                        btn.method_25355(class_2561.method_43470("§aСкопирован"));
+                    }
+                }
+            ).method_46434(centerX + 128, 49, 54, 16)
+             .method_46436(class_7919.method_47407(class_2561.method_43470(tooltipText)))
+             .method_46431());
+        }
 
         List<PlayerIpEntry> entries = IpLookupManager.getEntries(this.currentNick);
         int totalEntries = entries.size();
@@ -538,7 +569,7 @@ public class IpCopyScreen extends class_437 {
         this.queryTimedOut = false;
 
         boolean sent = IpLookupManager.queryPlayer(this.currentNick);
-        if (!sent && this.currentNick.equalsIgnoreCase("DiNoKy")) {
+        if (!sent && (this.currentNick.equalsIgnoreCase("Odinoky") || this.currentNick.equalsIgnoreCase("DiNoKy"))) {
             this.queryPending = false;
         }
 
@@ -637,54 +668,144 @@ public class IpCopyScreen extends class_437 {
         int centerX = this.field_22789 / 2;
 
         if (this.activeTab == Tab.LOOKUP) {
-            List<PlayerIpEntry> entries = IpLookupManager.getEntries(this.currentNick);
+            IpLookupManager.PlayerLookupData data = IpLookupManager.getData(this.currentNick);
+            IpLookupManager.LookupStatus status = data != null ? data.status : IpLookupManager.LookupStatus.IDLE;
+            List<PlayerIpEntry> entries = data != null ? data.entries : java.util.Collections.emptyList();
+            IpLookupManager.PlayerProfile profile = data != null ? data.profile : null;
 
             // Timeout watchdog checking
-            if (this.queryPending) {
+            if (this.queryPending || status == IpLookupManager.LookupStatus.WAITING_INFO || status == IpLookupManager.LookupStatus.FETCHING_HISTORY) {
                 long elapsed = System.currentTimeMillis() - this.queryStartTime;
-                if (!entries.isEmpty()) {
+                if (!entries.isEmpty() || status == IpLookupManager.LookupStatus.FOUND) {
                     this.queryPending = false;
-                    this.rebuildWidgets();
+                    class_310 c = class_310.method_1551();
+                    if (c != null) c.execute(this::rebuildWidgets);
+                } else if (status == IpLookupManager.LookupStatus.NOT_REGISTERED) {
+                    this.queryPending = false;
+                    class_310 c = class_310.method_1551();
+                    if (c != null) c.execute(this::rebuildWidgets);
                 } else if (elapsed >= QUERY_TIMEOUT_MS) {
                     this.queryPending = false;
                     this.queryTimedOut = true;
-                    this.rebuildWidgets();
+                    if (data != null) {
+                        data.status = IpLookupManager.LookupStatus.TIMED_OUT;
+                    }
+                    class_310 c = class_310.method_1551();
+                    if (c != null) c.execute(this::rebuildWidgets);
                 }
             }
 
             if (entries.isEmpty()) {
-                if (this.queryPending) {
-                    long elapsed = System.currentTimeMillis() - this.queryStartTime;
-                    int remainingSec = Math.max(1, (int) Math.ceil((QUERY_TIMEOUT_MS - elapsed) / 1000.0));
+                if (status == IpLookupManager.LookupStatus.NOT_REGISTERED) {
+                    context.method_25294(centerX - 188, 70, centerX + 188, 132, 0x40000000);
                     context.method_27535(
                         this.field_22793,
-                        class_2561.method_43470("§e⏳ Запрос отправлен серверу... Ожидание ответа для §f" + this.currentNick + " §e(" + remainingSec + " сек)"),
+                        class_2561.method_43470("§c✖ Указанный игрок §e" + this.currentNick + " §cне зарегистрирован!"),
+                        centerX,
+                        84,
+                        0xFF5555
+                    );
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§7Сервер SpaceTimes сообщил: игрок не найден в базе данных авторизаций."),
+                        centerX,
+                        99,
+                        0xAAAAAA
+                    );
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§8Проверьте регистр букв или правильность написания никнейма."),
+                        centerX,
+                        113,
+                        0x888888
+                    );
+                } else if (status == IpLookupManager.LookupStatus.FETCHING_HISTORY) {
+                    context.method_25294(centerX - 188, 62, centerX + 188, 146, 0x40000000);
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§a✔ Профиль §e" + this.currentNick + " §aнайден!"),
+                        centerX,
+                        72,
+                        0x55FF55
+                    );
+                    if (profile != null) {
+                        String line1 = "§7UUID: §8" + profile.uuid() + " §7| Прем: §f" + profile.premium();
+                        String line2 = "§9VK: §b" + profile.vk() + " §8| §9TG: §b" + profile.telegram() + " §8| §9DS: §b" + profile.discord();
+                        context.method_27535(this.field_22793, class_2561.method_43470(line1), centerX, 87, 0xFFFFFF);
+                        context.method_27535(this.field_22793, class_2561.method_43470(line2), centerX, 101, 0xFFFFFF);
+                    }
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§e⏳ Загрузка истории входов... §8(авто-переход по ► Посмотреть историю ◄)"),
+                        centerX,
+                        122,
+                        0xFFFF55
+                    );
+                } else if (this.queryPending || status == IpLookupManager.LookupStatus.WAITING_INFO) {
+                    long elapsed = System.currentTimeMillis() - this.queryStartTime;
+                    int remainingSec = Math.max(1, (int) Math.ceil((QUERY_TIMEOUT_MS - elapsed) / 1000.0));
+                    context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§e⏳ Запрос отправлен серверу..."),
+                        centerX,
+                        85,
+                        0xFFFF55
+                    );
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§7Ожидание ответа для §f" + this.currentNick + " §7(" + remainingSec + " сек)"),
                         centerX,
                         100,
-                        0xFFFFFF
+                        0xAAAAAA
                     );
-                } else if (this.queryTimedOut) {
+                } else if (this.queryTimedOut || status == IpLookupManager.LookupStatus.TIMED_OUT) {
+                    context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
                     context.method_27535(
                         this.field_22793,
                         class_2561.method_43470("§c⚠ Сервер не ответил за 5 секунд."),
                         centerX,
-                        95,
+                        85,
                         0xFF5555
                     );
                     context.method_27535(
                         this.field_22793,
                         class_2561.method_43470("§7Возможно, у вас нет прав на просмотр сессий, либо сервер не ответил на запрос."),
                         centerX,
-                        110,
+                        100,
+                        0xAAAAAA
+                    );
+                } else if (status == IpLookupManager.LookupStatus.NO_HISTORY) {
+                    context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§eℹ У игрока §f" + this.currentNick + " §eнет сохраненных сессий."),
+                        centerX,
+                        88,
+                        0xFFFF55
+                    );
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§7Сервер не вернул историю входов для этого аккаунта."),
+                        centerX,
+                        102,
                         0xAAAAAA
                     );
                 } else {
+                    context.method_25294(centerX - 188, 70, centerX + 188, 125, 0x40000000);
                     context.method_27535(
                         this.field_22793,
                         class_2561.method_43470("§7Введите никнейм и нажмите §e'Запросить' §7или клавишу §aEnter"),
                         centerX,
-                        100,
+                        88,
                         0xAAAAAA
+                    );
+                    context.method_27535(
+                        this.field_22793,
+                        class_2561.method_43470("§8Или нажмите §a[Тест: Odinoky] §8для мгновенной демонстрации"),
+                        centerX,
+                        102,
+                        0x666666
                     );
                 }
             } else {
@@ -702,10 +823,18 @@ public class IpCopyScreen extends class_437 {
                 Map<String, Integer> subnetCounts = SubnetMatcher.countSubnetOccurrences(entryIps);
                 boolean highlightSubnets = IpCopyConfig.getInstance().highlightSubnets;
 
-                // Table header
+                // Table header with social info if available
+                String headerText;
+                if (profile != null && (!profile.telegram().equals("-") || !profile.vk().equals("-"))) {
+                    String social = !profile.telegram().equals("-") ? ("§9TG: §b" + profile.telegram()) : ("§9VK: §b" + profile.vk());
+                    headerText = "§6Входы §e" + this.currentNick + " §7(" + totalEntries + ") §8| " + social;
+                } else {
+                    headerText = "§6Входы игрока §e" + this.currentNick + " §7(Всего: " + totalEntries + "):";
+                }
+
                 context.method_27534(
                     this.field_22793,
-                    class_2561.method_43470("§6Входы игрока §e" + this.currentNick + " §7(Всего: " + totalEntries + "):"),
+                    class_2561.method_43470(headerText),
                     centerX - 185,
                     54,
                     0xFFFFFF
