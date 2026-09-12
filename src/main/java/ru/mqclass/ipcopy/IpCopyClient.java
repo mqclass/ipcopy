@@ -4,7 +4,6 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
-import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -18,6 +17,7 @@ import net.minecraft.class_5250;
 import ru.mqclass.ipcopy.config.IpCopyConfig;
 import ru.mqclass.ipcopy.gui.IpCopyScreen;
 import ru.mqclass.ipcopy.history.IpHistoryManager;
+import ru.mqclass.ipcopy.lookup.IpLookupManager;
 
 import java.util.List;
 import java.util.Locale;
@@ -31,7 +31,7 @@ public final class IpCopyClient implements ClientModInitializer {
 
     public static final String MOD_ID = "ipcopy";
     public static final String MOD_NAME = "IP Copy";
-    public static final String VERSION = "1.1.0";
+    public static final String VERSION = "1.2.0";
 
     private static final String TEST_PLAYER = "DiNoKy";
     private static final Pattern NICKNAME_PATTERN = Pattern.compile("[A-Za-z0-9_]{1,16}");
@@ -44,6 +44,7 @@ public final class IpCopyClient implements ClientModInitializer {
         // Wipe session history when leaving a world or disconnecting from server
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             IpHistoryManager.clear();
+            IpLookupManager.clearCache();
         });
 
         // Register game message modifier (handles anticheat alerts, server logs, command outputs)
@@ -66,9 +67,16 @@ public final class IpCopyClient implements ClientModInitializer {
                 })
                 .then(ClientCommandManager.literal("gui")
                     .executes(context -> {
-                        openConfigGui();
+                        openConfigGui(null);
                         return 1;
                     })
+                    .then(ClientCommandManager.argument("nick", StringArgumentType.word())
+                        .executes(context -> {
+                            String nick = StringArgumentType.getString(context, "nick");
+                            openConfigGui(nick);
+                            return 1;
+                        })
+                    )
                 )
                 .then(ClientCommandManager.literal("test")
                     .executes(context -> {
@@ -133,8 +141,9 @@ public final class IpCopyClient implements ClientModInitializer {
         if (command.equals(".ipcopy")) {
             if (parts.length == 1) {
                 showLocalMessage(helpMessage());
-            } else if (parts.length == 2 && parts[1].equalsIgnoreCase("gui")) {
-                openConfigGui();
+            } else if (parts.length >= 2 && parts[1].equalsIgnoreCase("gui")) {
+                String nick = parts.length >= 3 ? parts[2] : null;
+                openConfigGui(nick);
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("test")) {
                 sendTestMessage();
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("toggle")) {
@@ -148,7 +157,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 IpCopyConfig.load();
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §aКонфигурация перезагружена с диска."));
             } else {
-                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui|test|toggle|history|clear|reload]"));
+                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|test|toggle|history|clear|reload]"));
             }
             return false;
         }
@@ -171,14 +180,19 @@ public final class IpCopyClient implements ClientModInitializer {
         if (client == null || client.field_1724 == null || client.method_1562() == null) {
             showLocalMessage(class_2561.method_43470("§cНужно подключиться к серверу."));
         } else {
+            IpLookupManager.queryPlayer(nick);
             client.method_1562().method_45730("auth player " + nick + " info");
         }
     }
 
     public static void openConfigGui() {
+        openConfigGui(null);
+    }
+
+    public static void openConfigGui(String initialNick) {
         class_310 client = class_310.method_1551();
         if (client != null) {
-            client.execute(() -> client.method_1507(new IpCopyScreen(client.field_1755)));
+            client.execute(() -> client.method_1507(new IpCopyScreen(client.field_1755, initialNick)));
         }
     }
 
@@ -190,11 +204,11 @@ public final class IpCopyClient implements ClientModInitializer {
         );
 
         // Clickable actions
-        class_5250 guiBtn = class_2561.method_43470(" §6[⚙ Открыть GUI] ")
+        class_5250 guiBtn = class_2561.method_43470(" §6[🔍 Панель поиска IP] ")
             .method_10862(class_2583.field_24360
                 .method_10977(class_124.field_1065)
                 .method_10958(new class_2558.class_10609("/ipcopy gui"))
-                .method_10949(new class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы открыть меню настроек"))));
+                .method_10949(new class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы открыть меню поиска и настроек"))));
 
         class_5250 testBtn = class_2561.method_43470(" §a[▶ Запустить тест]\n")
             .method_10862(class_2583.field_24360
@@ -203,7 +217,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 .method_10949(new class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы отправить тестовое сообщение"))));
 
         class_5250 commands = class_2561.method_43470(
-            "§e» §7.ipcopy gui §f— открыть визуальные настройки\n" +
+            "§e» §7.ipcopy gui [ник] §f— поиск IP по нику и настройки в GUI\n" +
             "§e» §7.ipcopy test §f— тест с тремя IP игрока §e" + TEST_PLAYER + "§7\n" +
             "§e» §7.ipcopy toggle §f— быстрое вкл/выкл мода\n" +
             "§e» §7.ipcopy history §f— последние скопированные IP сессии\n" +
@@ -260,7 +274,7 @@ public final class IpCopyClient implements ClientModInitializer {
     public static void showSpaceModerationHelpAddon() {
         showLocalMessage(class_2561.method_43470(
             "\n§6IP Copy §7by mqclass (v" + VERSION + ")\n" +
-            " §f▪ §6.ipcopy gui §8– §fоткрыть окно настроек\n" +
+            " §f▪ §6.ipcopy gui [ник] §8– §fпоиск IP по нику и окно настроек\n" +
             " §f▪ §6.ipcopy test §8– §fтест трёх IP и кнопок копирования\n" +
             " §f▪ §6.ipcopy toggle §8– §fвключить или выключить IP Copy\n" +
             " §f▪ §6.ipcopy history §8– §fистория скопированных IP\n" +

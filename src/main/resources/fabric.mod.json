@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "ipcopy",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "IP Copy",
   "description": "Мод от mqclass: быстрый поиск IPv4, кнопки копирования в стиле SpaceModeration, нативный GUI и тактильный отклик.",
   "authors": [

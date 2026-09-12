@@ -140,6 +140,9 @@ public final class IpCopyProcessor {
                 return message;
             }
 
+            // Inspect message for player auth responses
+            ru.mqclass.ipcopy.lookup.IpLookupManager.inspectMessage(rawText);
+
             // Guard against duplicate processing
             if (rawText.contains(COPY_BUTTON_TAG) || rawText.contains(LEGACY_COPY_BUTTON_TAG)) {
                 return message;
