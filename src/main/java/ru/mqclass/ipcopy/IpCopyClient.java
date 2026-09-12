@@ -126,6 +126,9 @@ public final class IpCopyClient implements ClientModInitializer {
         System.out.println("[IPCopy] IP Copy v" + VERSION + " by mqclass successfully initialized for Fabric 1.21.11!");
     }
 
+    private static long lastDotCommandTime = 0L;
+    private static String lastDotCommandMsg = "";
+
     public static boolean handleDotCommand(String rawMessage) {
         if (rawMessage == null) {
             return true;
@@ -135,6 +138,14 @@ public final class IpCopyClient implements ClientModInitializer {
         if (!input.startsWith(".")) {
             return true;
         }
+
+        long now = System.currentTimeMillis();
+        if (now - lastDotCommandTime < 150L && input.equalsIgnoreCase(lastDotCommandMsg)) {
+            return false;
+        }
+        lastDotCommandTime = now;
+        lastDotCommandMsg = input;
+
         String[] parts = input.split("\\s+");
         String command = parts[0].toLowerCase(Locale.ROOT);
 
@@ -181,7 +192,6 @@ public final class IpCopyClient implements ClientModInitializer {
             showLocalMessage(class_2561.method_43470("§cНужно подключиться к серверу."));
         } else {
             IpLookupManager.queryPlayer(nick);
-            client.method_1562().method_45730("auth player " + nick + " info");
         }
     }
 

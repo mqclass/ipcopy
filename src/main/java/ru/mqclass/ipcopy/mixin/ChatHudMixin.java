@@ -18,7 +18,8 @@ public class ChatHudMixin {
     @ModifyVariable(
         method = "method_44811(Lnet/minecraft/class_2561;Lnet/minecraft/class_7469;Lnet/minecraft/class_7591;)V",
         at = @At("HEAD"),
-        argsOnly = true
+        argsOnly = true,
+        require = 0
     )
     private class_2561 ipcopy$modifyChatMessage(class_2561 message) {
         return IpCopyProcessor.processMessage(message);

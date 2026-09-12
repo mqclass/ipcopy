@@ -54,5 +54,6 @@ tasks.withType<JavaCompile> {
 
 tasks.jar {
     archiveBaseName.set("ipcopy")
-    archiveVersion.set("1.1.0")
+    archiveVersion.set("1.2.0")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

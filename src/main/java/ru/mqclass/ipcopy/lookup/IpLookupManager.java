@@ -5,25 +5,39 @@ import ru.mqclass.ipcopy.IpCopyProcessor;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Manages player IP lookups and parsing of server /auth player info responses.
- * Authored by mqclass.
+ * Authored by mqclass for Minecraft 1.21.11 Fabric.
  */
 public final class IpLookupManager {
 
     public record PlayerIpEntry(String date, String ip, String sessionType) {}
 
-    private static final Map<String, List<PlayerIpEntry>> CACHE = new ConcurrentHashMap<>();
-    private static final Pattern NICK_HEADER_PATTERN = Pattern.compile("Входы игрока\\s+([A-Za-z0-9_]{1,16})", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-    private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{2}-\\d{2}-\\d{4}\\s+\\d{2}:\\d{2})");
+    private static final int MAX_CACHE_PLAYERS = 100;
+    private static final Map<String, List<PlayerIpEntry>> CACHE =
+        Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, List<PlayerIpEntry>> eldest) {
+                return size() > MAX_CACHE_PLAYERS;
+            }
+        });
+
+    private static final Pattern NICK_HEADER_PATTERN = Pattern.compile(
+        "(?:Входы|Авторизации|История входов|Logins of)\\s+(?:игрока\\s+)?([A-Za-z0-9_]{1,16})",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+    );
+
+    private static final Pattern DATE_PATTERN = Pattern.compile(
+        "(\\d{2}[-./]\\d{2}[-./]\\d{4}\\s+\\d{2}:\\d{2})"
+    );
 
     private static volatile String activeQueryNick = null;
     private static volatile long activeQueryTime = 0L;
@@ -39,6 +53,11 @@ public final class IpLookupManager {
     }
 
     private IpLookupManager() {}
+
+    public static String stripColorCodes(String text) {
+        if (text == null) return "";
+        return text.replaceAll("(?i)§[0-9a-fk-or]", "");
+    }
 
     public static void setUpdateListener(Consumer<String> listener) {
         updateListener = listener;
@@ -82,19 +101,24 @@ public final class IpLookupManager {
             return;
         }
 
+        String cleanText = stripColorCodes(rawText);
+
         String targetNick = null;
-        Matcher nickMatcher = NICK_HEADER_PATTERN.matcher(rawText);
+        Matcher nickMatcher = NICK_HEADER_PATTERN.matcher(cleanText);
         if (nickMatcher.find()) {
             targetNick = nickMatcher.group(1);
         } else if (activeQueryNick != null && (System.currentTimeMillis() - activeQueryTime) < 5000L) {
-            targetNick = activeQueryNick;
+            String lower = cleanText.toLowerCase(Locale.ROOT);
+            if (lower.contains("вход") || lower.contains("сессия") || lower.contains("session") || lower.contains("login") || DATE_PATTERN.matcher(cleanText).find()) {
+                targetNick = activeQueryNick;
+            }
         }
 
         if (targetNick == null) {
             return;
         }
 
-        String[] lines = rawText.split("\n");
+        String[] lines = cleanText.split("\n");
         List<PlayerIpEntry> parsedEntries = new ArrayList<>();
 
         for (String line : lines) {
@@ -126,6 +150,10 @@ public final class IpLookupManager {
 
     public static void clearCache() {
         CACHE.clear();
+        updateListener = null;
+        activeQueryNick = null;
+        activeQueryTime = 0L;
+
         // Restore default demo
         List<PlayerIpEntry> testEntries = new ArrayList<>();
         testEntries.add(new PlayerIpEntry("11-09-2026 23:08", "178.62.204.18", "session"));

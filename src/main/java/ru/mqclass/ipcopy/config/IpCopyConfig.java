@@ -17,17 +17,17 @@ public final class IpCopyConfig {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("ipcopy.json");
-    private static IpCopyConfig INSTANCE = new IpCopyConfig();
+    private static volatile IpCopyConfig INSTANCE = new IpCopyConfig();
 
     // Configuration fields
-    public boolean enabled = true;
-    public String buttonPrefix = "[Скоп. IP]";
-    public boolean soundFeedback = true;
-    public boolean actionbarFeedback = true;
-    public boolean sessionHistory = true;
-    public boolean showSecondAction = false;
-    public String secondActionTitle = "[DupeIP]";
-    public String secondActionCommand = "/dupeip %ip%";
+    public volatile boolean enabled = true;
+    public volatile String buttonPrefix = "[Скоп. IP]";
+    public volatile boolean soundFeedback = true;
+    public volatile boolean actionbarFeedback = true;
+    public volatile boolean sessionHistory = true;
+    public volatile boolean showSecondAction = false;
+    public volatile String secondActionTitle = "[DupeIP]";
+    public volatile String secondActionCommand = "/dupeip %ip%";
 
     private IpCopyConfig() {}
 

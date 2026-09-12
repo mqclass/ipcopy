@@ -19,7 +19,8 @@ public abstract class ScreenMixin {
 
     @Inject(
         method = "method_71847(Lnet/minecraft/class_2558;Lnet/minecraft/class_310;Lnet/minecraft/class_437;)V",
-        at = @At("HEAD")
+        at = @At("HEAD"),
+        require = 0
     )
     private static void ipcopy$onHandleClickEvent(
         class_2558 clickEvent,

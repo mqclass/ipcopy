@@ -8,24 +8,36 @@ import ru.mqclass.ipcopy.IpCopyProcessor;
 import ru.mqclass.ipcopy.config.IpCopyConfig;
 import ru.mqclass.ipcopy.history.IpHistoryManager;
 
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
  * Handles tactile audio and actionbar visual feedback when an IP is copied.
+ * Authored by mqclass for Minecraft 1.21.11 Fabric.
  */
 public final class IpFeedback {
 
-    private static long lastCopyTime = 0L;
+    private static final AtomicLong LAST_COPY_TIME = new AtomicLong(0L);
     private static final long DEBOUNCE_MS = 250L;
 
     private IpFeedback() {}
 
     public static void onIpCopied(String ip) {
-        if (ip == null || !IpCopyProcessor.isValidIp(ip)) {
+        if (ip == null) {
+            return;
+        }
+
+        if (!IpCopyProcessor.isValidIp(ip)) {
+            List<String> multiple = IpCopyProcessor.extractIps(ip);
+            if (!multiple.isEmpty()) {
+                onMultipleIpsCopied(multiple);
+            }
             return;
         }
 
         long now = System.currentTimeMillis();
-        boolean debounced = (now - lastCopyTime) < DEBOUNCE_MS;
-        lastCopyTime = now;
+        long prev = LAST_COPY_TIME.getAndSet(now);
+        boolean debounced = (now - prev) < DEBOUNCE_MS;
 
         // 1. Record in session history
         IpHistoryManager.recordIp(ip);
@@ -49,7 +61,6 @@ public final class IpFeedback {
                         class_1109.method_47978(class_3417.field_15239, 1.0F)
                     );
                 } catch (Throwable ignored) {
-                    // Safe guard against audio device errors
                 }
             }
 
@@ -61,7 +72,52 @@ public final class IpFeedback {
                         true
                     );
                 } catch (Throwable ignored) {
-                    // Safe guard against overlay formatting errors
+                }
+            }
+        });
+    }
+
+    public static void onMultipleIpsCopied(List<String> ips) {
+        if (ips == null || ips.isEmpty()) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long prev = LAST_COPY_TIME.getAndSet(now);
+        boolean debounced = (now - prev) < DEBOUNCE_MS;
+
+        for (String ip : ips) {
+            IpHistoryManager.recordIp(ip);
+        }
+
+        if (debounced) {
+            return;
+        }
+
+        class_310 client = class_310.method_1551();
+        if (client == null) {
+            return;
+        }
+
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_47978(class_3417.field_15239, 1.0F)
+                    );
+                } catch (Throwable ignored) {
+                }
+            }
+
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                try {
+                    client.field_1724.method_7353(
+                        class_2561.method_43470("§a✔ Скопировано §f" + ips.size() + " §aIP в буфер обмена!"),
+                        true
+                    );
+                } catch (Throwable ignored) {
                 }
             }
         });
