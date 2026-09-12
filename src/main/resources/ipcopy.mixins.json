@@ -8,7 +8,9 @@
     "ScreenMixin",
     "SpaceModerationDotCommandMixin",
     "SpaceModerationHelpMixin",
-    "SpaceModerationSuggestionsMixin"
+    "SpaceModerationSuggestionsMixin",
+    "SpaceModerationAuthMixin",
+    "SpaceModerationHWIDManagerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

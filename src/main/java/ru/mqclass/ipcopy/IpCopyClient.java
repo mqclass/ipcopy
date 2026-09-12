@@ -14,6 +14,7 @@ import net.minecraft.class_2568;
 import net.minecraft.class_2583;
 import net.minecraft.class_310;
 import net.minecraft.class_5250;
+import ru.mqclass.ipcopy.compat.SpaceModerationAuthFix;
 import ru.mqclass.ipcopy.config.IpCopyConfig;
 import ru.mqclass.ipcopy.gui.IpCopyScreen;
 import ru.mqclass.ipcopy.history.IpHistoryManager;
@@ -39,6 +40,9 @@ public final class IpCopyClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        // Initialize client stability & SpaceModeration local auth resolution
+        SpaceModerationAuthFix.init();
+
         // Load configuration from .minecraft/config/ipcopy.json
         IpCopyConfig.load();
 
