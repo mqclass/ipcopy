@@ -30,6 +30,7 @@ public final class IpCopyConfig {
     public volatile boolean showSecondAction = false;
     public volatile String secondActionTitle = "[DupeIP]";
     public volatile String secondActionCommand = "/dupeip %ip%";
+    public volatile boolean silentChatMode = false;
 
     private IpCopyConfig() {}
 

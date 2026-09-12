@@ -51,6 +51,27 @@ public class IpCopyScreen extends class_437 {
     private long queryStartTime = 0L;
     private boolean queryTimedOut = false;
 
+    // Server page navigation state & anti-spam cooldown (1.3s)
+    private static final long SERVER_NAV_COOLDOWN_MS = 1300L;
+    private long lastServerNavTime = 0L;
+    private boolean isNavigatingServerPage = false;
+    private long serverNavStartTime = 0L;
+
+    private boolean canSendServerNavCommand() {
+        return !this.isNavigatingServerPage && (System.currentTimeMillis() - this.lastServerNavTime >= SERVER_NAV_COOLDOWN_MS);
+    }
+
+    private void executeServerNavCommand(String cmd) {
+        if (cmd == null || cmd.isEmpty() || !canSendServerNavCommand()) return;
+
+        this.lastServerNavTime = System.currentTimeMillis();
+        this.isNavigatingServerPage = true;
+        this.serverNavStartTime = this.lastServerNavTime;
+
+        IpLookupManager.executeServerCommand(cmd);
+        this.rebuildWidgets();
+    }
+
     public IpCopyScreen(class_437 parent) {
         super(class_2561.method_43470("IP Copy — Панель модератора"));
         this.parent = parent;
@@ -80,6 +101,7 @@ public class IpCopyScreen extends class_437 {
             if (nick != null && nick.equalsIgnoreCase(this.currentNick)) {
                 this.queryPending = false;
                 this.queryTimedOut = false;
+                this.isNavigatingServerPage = false;
                 class_310 client = class_310.method_1551();
                 if (client != null) {
                     client.execute(this::rebuildWidgets);
@@ -260,7 +282,60 @@ public class IpCopyScreen extends class_437 {
             }
 
             // Pagination navigation controls
-            if (maxPages > 1) {
+            boolean hasServerPages = lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1;
+
+            if (hasServerPages) {
+                int paginationY = 178;
+                boolean canNav = canSendServerNavCommand();
+
+                // [⏮] First page
+                class_4185 firstBtn = class_4185.method_46430(
+                    class_2561.method_43470("§f⏮"),
+                    button -> executeServerNavCommand(lookupData.cmdFirst)
+                ).method_46434(centerX - 87, paginationY, 22, 18)
+                 .method_46436(class_7919.method_47407(class_2561.method_43470(
+                     "§eПервая страница (1/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (lookupData.cmdFirst != null ? lookupData.cmdFirst : "—")
+                 )))
+                 .method_46431();
+                firstBtn.field_22763 = canNav && lookupData.cmdFirst != null && lookupData.serverCurrentPage > 1;
+                this.method_37063(firstBtn);
+
+                // [◀] Previous page
+                class_4185 prevBtn = class_4185.method_46430(
+                    class_2561.method_43470("§f◀"),
+                    button -> executeServerNavCommand(lookupData.cmdPrev)
+                ).method_46434(centerX - 62, paginationY, 22, 18)
+                 .method_46436(class_7919.method_47407(class_2561.method_43470(
+                     "§eПредыдущая страница\n§7Команда: §f" + (lookupData.cmdPrev != null ? lookupData.cmdPrev : "—")
+                 )))
+                 .method_46431();
+                prevBtn.field_22763 = canNav && lookupData.cmdPrev != null && lookupData.serverCurrentPage > 1;
+                this.method_37063(prevBtn);
+
+                // [▶] Next page
+                class_4185 nextBtn = class_4185.method_46430(
+                    class_2561.method_43470("§f▶"),
+                    button -> executeServerNavCommand(lookupData.cmdNext)
+                ).method_46434(centerX + 40, paginationY, 22, 18)
+                 .method_46436(class_7919.method_47407(class_2561.method_43470(
+                     "§eСледующая страница\n§7Команда: §f" + (lookupData.cmdNext != null ? lookupData.cmdNext : "—")
+                 )))
+                 .method_46431();
+                nextBtn.field_22763 = canNav && lookupData.cmdNext != null && lookupData.serverCurrentPage < lookupData.serverTotalPages;
+                this.method_37063(nextBtn);
+
+                // [⏭] Last page
+                class_4185 lastBtn = class_4185.method_46430(
+                    class_2561.method_43470("§f⏭"),
+                    button -> executeServerNavCommand(lookupData.cmdLast)
+                ).method_46434(centerX + 65, paginationY, 22, 18)
+                 .method_46436(class_7919.method_47407(class_2561.method_43470(
+                     "§eПоследняя страница (" + lookupData.serverTotalPages + "/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (lookupData.cmdLast != null ? lookupData.cmdLast : "—")
+                 )))
+                 .method_46431();
+                lastBtn.field_22763 = canNav && lookupData.cmdLast != null && lookupData.serverCurrentPage < lookupData.serverTotalPages;
+                this.method_37063(lastBtn);
+            } else if (maxPages > 1) {
                 int paginationY = 178;
 
                 class_4185 prevBtn = class_4185.method_46430(
@@ -298,6 +373,9 @@ public class IpCopyScreen extends class_437 {
 
         if (!entries.isEmpty()) {
             Set<String> uniqueIps = new LinkedHashSet<>();
+            if (lookupData != null && !lookupData.allCollectedIps.isEmpty()) {
+                uniqueIps.addAll(lookupData.allCollectedIps);
+            }
             for (PlayerIpEntry e : entries) {
                 uniqueIps.add(e.ip());
             }
@@ -504,6 +582,19 @@ public class IpCopyScreen extends class_437 {
             }
         ).method_46434(leftX, startY + spacing * 3, btnWidth, btnHeight).method_46431());
 
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470(getSilentModeText(config.silentChatMode)),
+            button -> {
+                config.silentChatMode = !config.silentChatMode;
+                button.method_25355(class_2561.method_43470(getSilentModeText(config.silentChatMode)));
+                IpCopyConfig.save();
+            }
+        ).method_46434(leftX, startY + spacing * 4, btnWidth, btnHeight)
+         .method_46436(class_7919.method_47407(class_2561.method_43470(
+             "§eСкрытый режим чата (Stealth Mode)\n§aВКЛ: §7ответы /auth обрабатываются фоново в дашборде без вывода в чат\n§cВЫКЛ: §7обычный вывод в игровой чат"
+         )))
+         .method_46431());
+
         // Column 2
         this.method_37063(class_4185.method_46430(
             class_2561.method_43470(getSubnetText(config.highlightSubnets)),
@@ -542,6 +633,18 @@ public class IpCopyScreen extends class_437 {
                 button.method_25355(class_2561.method_43470("§aОтправлено!"));
             }
         ).method_46434(rightX, startY + spacing * 3, btnWidth, btnHeight).method_46431());
+
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470("§6Сброс кэша"),
+            button -> {
+                IpLookupManager.clearCache();
+                button.method_25355(class_2561.method_43470("§aСброшено!"));
+            }
+        ).method_46434(rightX, startY + spacing * 4, btnWidth, btnHeight)
+         .method_46436(class_7919.method_47407(class_2561.method_43470(
+             "§6Сбросить кэш поиска игроков\n§7Очищает кэшированные профили и страницы сессий"
+         )))
+         .method_46431());
 
         // Bottom action buttons
         int bottomY = this.field_22790 - 26;
@@ -618,6 +721,25 @@ public class IpCopyScreen extends class_437 {
 
             // Arrow keys handle instant pagination when text field is not focused
             if ((this.activeTab == Tab.LOOKUP || this.activeTab == Tab.HISTORY) && (this.nickField == null || !this.nickField.method_25370())) {
+                if (this.activeTab == Tab.LOOKUP) {
+                    IpLookupManager.PlayerLookupData lookupData = IpLookupManager.getData(this.currentNick);
+                    if (lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1) {
+                        if (keyCode == 263 && lookupData.cmdPrev != null && lookupData.serverCurrentPage > 1) {
+                            executeServerNavCommand(lookupData.cmdPrev);
+                            return true;
+                        } else if (keyCode == 262 && lookupData.cmdNext != null && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
+                            executeServerNavCommand(lookupData.cmdNext);
+                            return true;
+                        } else if (keyCode == 268 && lookupData.cmdFirst != null && lookupData.serverCurrentPage > 1) {
+                            executeServerNavCommand(lookupData.cmdFirst);
+                            return true;
+                        } else if (keyCode == 269 && lookupData.cmdLast != null && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
+                            executeServerNavCommand(lookupData.cmdLast);
+                            return true;
+                        }
+                    }
+                }
+
                 int totalEntries = (this.activeTab == Tab.LOOKUP)
                     ? IpLookupManager.getEntries(this.currentNick).size()
                     : IpHistoryManager.size();
@@ -641,6 +763,19 @@ public class IpCopyScreen extends class_437 {
     public boolean method_25401(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         // Mouse wheel scroll flips pages in list tabs
         if (this.activeTab == Tab.LOOKUP || this.activeTab == Tab.HISTORY) {
+            if (this.activeTab == Tab.LOOKUP) {
+                IpLookupManager.PlayerLookupData lookupData = IpLookupManager.getData(this.currentNick);
+                if (lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1) {
+                    if (verticalAmount < 0 && lookupData.cmdNext != null && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
+                        executeServerNavCommand(lookupData.cmdNext);
+                        return true;
+                    } else if (verticalAmount > 0 && lookupData.cmdPrev != null && lookupData.serverCurrentPage > 1) {
+                        executeServerNavCommand(lookupData.cmdPrev);
+                        return true;
+                    }
+                }
+            }
+
             int totalEntries = (this.activeTab == Tab.LOOKUP)
                 ? IpLookupManager.getEntries(this.currentNick).size()
                 : IpHistoryManager.size();
@@ -879,7 +1014,33 @@ public class IpCopyScreen extends class_437 {
                 }
 
                 // Page indicator between arrows
-                if (maxPages > 1) {
+                boolean hasServerPages = data != null && data.hasServerPagination && data.serverTotalPages > 1;
+
+                if (hasServerPages) {
+                    long elapsed = System.currentTimeMillis() - this.lastServerNavTime;
+                    if (this.isNavigatingServerPage && (System.currentTimeMillis() - this.serverNavStartTime > 4000L)) {
+                        this.isNavigatingServerPage = false;
+                        this.rebuildWidgets();
+                    }
+
+                    String pageStatus;
+                    if (this.isNavigatingServerPage) {
+                        pageStatus = "§e⏳ Загрузка...";
+                    } else if (elapsed < SERVER_NAV_COOLDOWN_MS) {
+                        double remainSec = (SERVER_NAV_COOLDOWN_MS - elapsed) / 1000.0;
+                        pageStatus = String.format(java.util.Locale.ROOT, "§7Стр. §e%d§7/§e%d §8(%.1fs)", data.serverCurrentPage, data.serverTotalPages, remainSec);
+                    } else {
+                        pageStatus = "§7Стр. §e" + data.serverCurrentPage + "§7/§e" + data.serverTotalPages;
+                    }
+
+                    drawCenteredText(
+                        context,
+                        class_2561.method_43470(pageStatus),
+                        centerX,
+                        183,
+                        0xFFFFFFFF
+                    );
+                } else if (maxPages > 1) {
                     drawCenteredText(
                         context,
                         class_2561.method_43470("§7Стр. §e" + (this.currentPage + 1) + "§7/§e" + maxPages),
@@ -1007,5 +1168,9 @@ public class IpCopyScreen extends class_437 {
 
     private static String getSecondActionText(boolean state) {
         return "§7/dupeip: " + (state ? "§aВКЛ" : "§cВЫКЛ");
+    }
+
+    private static String getSilentModeText(boolean state) {
+        return "§7Чат: " + (state ? "§cСкрытый" : "§aОбычный");
     }
 }
