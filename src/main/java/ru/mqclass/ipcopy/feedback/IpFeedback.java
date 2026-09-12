@@ -74,6 +74,20 @@ public final class IpFeedback {
                 } catch (Throwable ignored) {
                 }
             }
+
+            // 4. Display native Minecraft HUD toast
+            if (config.toastFeedback) {
+                try {
+                    net.minecraft.class_374 toastManager = client.method_1566();
+                    if (toastManager != null) {
+                        toastManager.method_1999(new ru.mqclass.ipcopy.toast.IpToast(
+                            class_2561.method_43470("§6[IPCopy] §a✔ IP скопирован!"),
+                            class_2561.method_43470("§e" + ip)
+                        ));
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
         });
     }
 
@@ -117,6 +131,19 @@ public final class IpFeedback {
                         class_2561.method_43470("§a✔ Скопировано §f" + ips.size() + " §aIP в буфер обмена!"),
                         true
                     );
+                } catch (Throwable ignored) {
+                }
+            }
+
+            if (config.toastFeedback) {
+                try {
+                    net.minecraft.class_374 toastManager = client.method_1566();
+                    if (toastManager != null) {
+                        toastManager.method_1999(new ru.mqclass.ipcopy.toast.IpToast(
+                            class_2561.method_43470("§6[IPCopy] §a✔ IP скопированы!"),
+                            class_2561.method_43470("§eВсего адресов: §f" + ips.size())
+                        ));
+                    }
                 } catch (Throwable ignored) {
                 }
             }

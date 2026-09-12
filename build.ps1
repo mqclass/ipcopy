@@ -21,6 +21,11 @@ Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\
 Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\1.21.11 SM\minecraft\.fabric\processedMods" -Filter "*.jar" | ForEach-Object {
     $cpList.Add($_.FullName)
 }
+if (Test-Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\1.21.11\minecraft\.fabric\processedMods") {
+    Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\1.21.11\minecraft\.fabric\processedMods" -Filter "*.jar" | ForEach-Object {
+        $cpList.Add($_.FullName)
+    }
+}
 
 $cp = $cpList -join ';'
 
@@ -32,7 +37,21 @@ $sources = Get-ChildItem -Path "$cwd\src\main\java" -Recurse -Filter "*.java" |
     ForEach-Object { $_.FullName }
 
 Write-Host "Compiling sources..."
-& javac -encoding UTF-8 -proc:none -cp $cp -d $outDir $sources
+$argFile = "$cwd\build\javac_args.txt"
+$argLines = [System.Collections.Generic.List[string]]::new()
+$argLines.Add("-encoding")
+$argLines.Add("UTF-8")
+$argLines.Add("-proc:none")
+$argLines.Add("-cp")
+$argLines.Add('"' + $cp.Replace('\', '/') + '"')
+$argLines.Add("-d")
+$argLines.Add('"' + $outDir.Replace('\', '/') + '"')
+foreach ($s in $sources) {
+    $argLines.Add('"' + $s.Replace('\', '/') + '"')
+}
+[System.IO.File]::WriteAllLines($argFile, $argLines, [System.Text.UTF8Encoding]::new($false))
+
+& javac "@$argFile"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "javac failed with exit code $LASTEXITCODE"
     exit 1
@@ -47,7 +66,7 @@ Copy-Item -Recurse -Force "$resourcesDir\*" "$outDir\"
 # Build Jar
 $libsDir = "$cwd\build\libs"
 New-Item -ItemType Directory -Force -Path $libsDir | Out-Null
-$jarFile = "$libsDir\ipcopy-1.2.0.jar"
+$jarFile = "$libsDir\ipcopy-1.3.0.jar"
 if (Test-Path $jarFile) { Remove-Item -Force $jarFile }
 
 Write-Host "Packaging JAR: $jarFile..."
@@ -62,8 +81,8 @@ if (Test-Path $jarFile) {
         try {
             # Remove old versions
             Get-ChildItem -Path $modsTarget -Filter "ipcopy*.jar" | Remove-Item -Force -ErrorAction Stop
-            Copy-Item -Force $jarFile "$modsTarget\ipcopy-1.2.0.jar"
-            Write-Host "Deployed to FreesmLauncher mods: $modsTarget\ipcopy-1.2.0.jar"
+            Copy-Item -Force $jarFile "$modsTarget\ipcopy-1.3.0.jar"
+            Write-Host "Deployed to FreesmLauncher mods: $modsTarget\ipcopy-1.3.0.jar"
         } catch {
             Write-Warning "Minecraft is currently running and has locked the mod JAR. The new version is built at: $jarFile`nPlease restart Minecraft to update the mod in the mods folder!"
         }

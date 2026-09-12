@@ -24,6 +24,8 @@ public final class IpCopyConfig {
     public volatile String buttonPrefix = "[Скоп. IP]";
     public volatile boolean soundFeedback = true;
     public volatile boolean actionbarFeedback = true;
+    public volatile boolean toastFeedback = true;
+    public volatile boolean highlightSubnets = true;
     public volatile boolean sessionHistory = true;
     public volatile boolean showSecondAction = false;
     public volatile String secondActionTitle = "[DupeIP]";

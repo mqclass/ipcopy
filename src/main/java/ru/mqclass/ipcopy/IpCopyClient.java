@@ -17,6 +17,7 @@ import net.minecraft.class_5250;
 import ru.mqclass.ipcopy.config.IpCopyConfig;
 import ru.mqclass.ipcopy.gui.IpCopyScreen;
 import ru.mqclass.ipcopy.history.IpHistoryManager;
+import ru.mqclass.ipcopy.keybind.IpKeyBindings;
 import ru.mqclass.ipcopy.lookup.IpLookupManager;
 
 import java.util.List;
@@ -31,7 +32,7 @@ public final class IpCopyClient implements ClientModInitializer {
 
     public static final String MOD_ID = "ipcopy";
     public static final String MOD_NAME = "IP Copy";
-    public static final String VERSION = "1.2.0";
+    public static final String VERSION = "1.3.0";
 
     private static final String TEST_PLAYER = "DiNoKy";
     private static final Pattern NICKNAME_PATTERN = Pattern.compile("[A-Za-z0-9_]{1,16}");
@@ -40,6 +41,9 @@ public final class IpCopyClient implements ClientModInitializer {
     public void onInitializeClient() {
         // Load configuration from .minecraft/config/ipcopy.json
         IpCopyConfig.load();
+
+        // Register native keybindings (default key 'I' for instant GUI access)
+        IpKeyBindings.register();
 
         // Wipe session history when leaving a world or disconnecting from server
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
@@ -227,6 +231,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 .method_10949(new class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы отправить тестовое сообщение"))));
 
         class_5250 commands = class_2561.method_43470(
+            "§e» §7Клавиша [I] §f— открыть панель IP Copy в 1 клик\n" +
             "§e» §7.ipcopy gui [ник] §f— поиск IP по нику и настройки в GUI\n" +
             "§e» §7.ipcopy test §f— тест с тремя IP игрока §e" + TEST_PLAYER + "§7\n" +
             "§e» §7.ipcopy toggle §f— быстрое вкл/выкл мода\n" +

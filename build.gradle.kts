@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "ru.mqclass"
-version = "1.2.0"
+version = "1.3.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -28,9 +28,9 @@ dependencies {
         include("**/*.jar")
     })
 
-    // Processed fabric mods
-    compileOnly(fileTree("$freesmDir/instances/1.21.11 SM/minecraft/.fabric/processedMods") {
-        include("**/*.jar")
+    // Processed fabric mods from instances
+    compileOnly(fileTree("$freesmDir/instances") {
+        include("**/processedMods/**/*.jar")
     })
 
     // ModMenu jar from mods folder
@@ -54,6 +54,6 @@ tasks.withType<JavaCompile> {
 
 tasks.jar {
     archiveBaseName.set("ipcopy")
-    archiveVersion.set("1.2.0")
+    archiveVersion.set("1.3.0")
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
