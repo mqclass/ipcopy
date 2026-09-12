@@ -158,7 +158,7 @@ public class IpCopyScreen extends class_437 {
             class_2561.method_43470(this.queryPending ? "§7⏳ Поиск..." : "§e🔍 Запросить"),
             button -> triggerPlayerQuery()
         ).method_46434(centerX - 20, inputY, 90, 20)
-         .method_46436(class_7919.method_47407(class_2561.method_43470("§eЗапросить данные с сервера\n§7Команда: §f/auth player " + this.currentNick + " info\n§8(Клавиша Enter в поле)")))
+         .method_46436(class_7919.method_47407(class_2561.method_43470("§eЗапросить историю сессий\n§7Поиск сессий игрока: §f" + this.currentNick + "\n§8(Клавиша Enter в поле)")))
          .method_46431();
         searchBtn.field_22763 = !this.queryPending;
         this.method_37063(searchBtn);
@@ -662,7 +662,7 @@ public class IpCopyScreen extends class_437 {
                     );
                     context.method_27535(
                         this.field_22793,
-                        class_2561.method_43470("§7Возможно, у вас нет прав на §e/auth player info§7, либо сервер заблокировал команду."),
+                        class_2561.method_43470("§7Возможно, у вас нет прав на просмотр сессий, либо сервер не ответил на запрос."),
                         centerX,
                         110,
                         0xAAAAAA

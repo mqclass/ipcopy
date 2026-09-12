@@ -236,7 +236,7 @@ public final class IpCopyClient implements ClientModInitializer {
             "§e» §7.ipcopy test §f— тест с тремя IP игрока §e" + TEST_PLAYER + "§7\n" +
             "§e» §7.ipcopy toggle §f— быстрое вкл/выкл мода\n" +
             "§e» §7.ipcopy history §f— последние скопированные IP сессии\n" +
-            "§e» §7.apf <ник> §f— отправить §7/auth player <ник> info"
+            "§e» §7.apf <ник> §f— быстрый поиск сессий игрока"
         );
 
         return title.method_10852(guiBtn).method_10852(testBtn).method_10852(commands);
@@ -293,7 +293,7 @@ public final class IpCopyClient implements ClientModInitializer {
             " §f▪ §6.ipcopy test §8– §fтест трёх IP и кнопок копирования\n" +
             " §f▪ §6.ipcopy toggle §8– §fвключить или выключить IP Copy\n" +
             " §f▪ §6.ipcopy history §8– §fистория скопированных IP\n" +
-            " §f▪ §6.apf §7<ник> §8– §fоткрыть /auth player <ник> info"
+            " §f▪ §6.apf §7<ник> §8– §fбыстрый поиск сессий игрока"
         ));
     }
 }

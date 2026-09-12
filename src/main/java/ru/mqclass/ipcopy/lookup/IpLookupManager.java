@@ -14,7 +14,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Manages player IP lookups and parsing of server /auth player info responses.
+ * Manages player IP lookups and parsing of session info responses.
  * Authored by mqclass for Minecraft 1.21.11 Fabric.
  */
 public final class IpLookupManager {
