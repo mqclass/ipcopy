@@ -569,7 +569,7 @@ public class IpCopyScreen extends class_437 {
         this.queryTimedOut = false;
 
         boolean sent = IpLookupManager.queryPlayer(this.currentNick);
-        if (!sent && (this.currentNick.equalsIgnoreCase("Odinoky") || this.currentNick.equalsIgnoreCase("DiNoKy"))) {
+        if (!sent) {
             this.queryPending = false;
         }
 

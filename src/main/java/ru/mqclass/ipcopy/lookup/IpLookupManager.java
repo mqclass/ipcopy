@@ -346,7 +346,7 @@ public final class IpLookupManager {
             }
 
             notifyListener(targetNick);
-        } else if (loginsHeaderMatcher.find() || cleanText.contains("(0/0)")) {
+        } else if (cleanText.contains("(0/0)") || cleanText.contains("(0/") || cleanText.toLowerCase(Locale.ROOT).contains("нет записей") || cleanText.toLowerCase(Locale.ROOT).contains("нет сессий")) {
             PlayerLookupData data = getOrCreateData(targetNick);
             data.entries.clear();
             data.status = LookupStatus.NO_HISTORY;
