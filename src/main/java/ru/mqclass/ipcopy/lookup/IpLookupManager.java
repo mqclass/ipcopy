@@ -109,7 +109,8 @@ public final class IpLookupManager {
             targetNick = nickMatcher.group(1);
         } else if (activeQueryNick != null && (System.currentTimeMillis() - activeQueryTime) < 5000L) {
             String lower = cleanText.toLowerCase(Locale.ROOT);
-            if (lower.contains("вход") || lower.contains("сессия") || lower.contains("session") || lower.contains("login") || DATE_PATTERN.matcher(cleanText).find()) {
+            boolean isAnticheat = lower.contains("sac") || lower.contains("античит") || lower.contains("anticheat");
+            if (!isAnticheat && (lower.contains("вход") || lower.contains("сессия") || lower.contains("session") || lower.contains("login") || DATE_PATTERN.matcher(cleanText).find())) {
                 targetNick = activeQueryNick;
             }
         }

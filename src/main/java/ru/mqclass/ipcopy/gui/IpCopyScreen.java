@@ -60,7 +60,11 @@ public class IpCopyScreen extends class_437 {
         super(class_2561.method_43470("IP Copy — Панель модератора"));
         this.parent = parent;
         if (initialNick != null && !initialNick.trim().isEmpty()) {
-            this.currentNick = initialNick.trim();
+            String sanitized = initialNick.trim().replaceAll("[^A-Za-z0-9_]", "");
+            if (sanitized.length() > 16) {
+                sanitized = sanitized.substring(0, 16);
+            }
+            this.currentNick = sanitized;
         }
     }
 
@@ -129,6 +133,8 @@ public class IpCopyScreen extends class_437 {
             }
         ).method_46434(startTabX + (tabWidth + 4) * 2, tabY, tabWidth, tabHeight).method_46431());
 
+        this.nickField = null;
+
         if (this.activeTab == Tab.LOOKUP) {
             setupLookupTab(centerX);
         } else if (this.activeTab == Tab.HISTORY) {
@@ -152,6 +158,8 @@ public class IpCopyScreen extends class_437 {
         });
         this.nickField.method_1890(str -> str.matches("[A-Za-z0-9_]*"));
         this.method_37063(this.nickField);
+        this.method_25395(this.nickField);
+        this.nickField.method_25365(true);
 
         // Search button with tooltip & pending state
         class_4185 searchBtn = class_4185.method_46430(
@@ -554,9 +562,12 @@ public class IpCopyScreen extends class_437 {
             if (cmd.startsWith("/")) {
                 cmd = cmd.substring(1);
             }
-            client.method_1562().method_45730(cmd);
-            if (client.field_1724 != null) {
-                client.field_1724.method_7353(class_2561.method_43470("§b[IPCopy] §7Команда отправлена: §f/" + cmd), true);
+            cmd = cmd.trim();
+            if (!cmd.isEmpty()) {
+                client.method_1562().method_45730(cmd);
+                if (client.field_1724 != null) {
+                    client.field_1724.method_7353(class_2561.method_43470("§b[IPCopy] §7Команда отправлена: §f/" + cmd), true);
+                }
             }
         }
     }

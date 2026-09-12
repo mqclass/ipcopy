@@ -159,7 +159,7 @@ public final class IpCopyProcessor {
             }
 
             /*
-             * /auth may arrive either as separate chat messages or as one Text
+             * Session messages may arrive either as separate chat messages or as one Text
              * containing several lines. Rebuilding styled runs lets us put each
              * button beside its own history row while retaining the server's
              * colours, hover events and click events.

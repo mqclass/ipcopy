@@ -22,14 +22,17 @@ public final class IpFeedback {
 
     private IpFeedback() {}
 
-    public static void onIpCopied(String ip) {
-        if (ip == null) {
+    public static void onIpCopied(String rawIp) {
+        if (rawIp == null) {
             return;
         }
 
+        final String ip = rawIp.trim();
         if (!IpCopyProcessor.isValidIp(ip)) {
-            List<String> multiple = IpCopyProcessor.extractIps(ip);
-            if (!multiple.isEmpty()) {
+            List<String> multiple = IpCopyProcessor.extractIps(rawIp);
+            if (multiple.size() == 1) {
+                onIpCopied(multiple.get(0));
+            } else if (multiple.size() > 1) {
                 onMultipleIpsCopied(multiple);
             }
             return;
