@@ -66,7 +66,7 @@ Copy-Item -Recurse -Force "$resourcesDir\*" "$outDir\"
 # Build Jar
 $libsDir = "$cwd\build\libs"
 New-Item -ItemType Directory -Force -Path $libsDir | Out-Null
-$jarFile = "$libsDir\ipcopy-1.3.0.jar"
+$jarFile = "$libsDir\ipcopy-1.4.0.jar"
 if (Test-Path $jarFile) { Remove-Item -Force $jarFile }
 
 Write-Host "Packaging JAR: $jarFile..."
@@ -81,8 +81,8 @@ if (Test-Path $jarFile) {
         try {
             # Remove old versions
             Get-ChildItem -Path $modsTarget -Filter "ipcopy*.jar" | Remove-Item -Force -ErrorAction Stop
-            Copy-Item -Force $jarFile "$modsTarget\ipcopy-1.3.0.jar"
-            Write-Host "Deployed to FreesmLauncher mods: $modsTarget\ipcopy-1.3.0.jar"
+            Copy-Item -Force $jarFile "$modsTarget\ipcopy-1.4.0.jar"
+            Write-Host "Deployed to FreesmLauncher mods: $modsTarget\ipcopy-1.4.0.jar"
         } catch {
             Write-Warning "Minecraft is currently running and has locked the mod JAR. The new version is built at: $jarFile`nPlease restart Minecraft to update the mod in the mods folder!"
         }
@@ -90,4 +90,3 @@ if (Test-Path $jarFile) {
 } else {
     Write-Error "JAR creation failed!"
 }
-

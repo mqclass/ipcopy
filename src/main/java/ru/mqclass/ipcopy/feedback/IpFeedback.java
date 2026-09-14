@@ -152,4 +152,25 @@ public final class IpFeedback {
             }
         });
     }
+
+    public static void onReportExported(String message, boolean success) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            String prefix = success ? "§a✔ Отчёт сохранён: §f" : "§c✖ ";
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                client.field_1724.method_7353(class_2561.method_43470(prefix + message), true);
+            }
+            if (config.toastFeedback) {
+                net.minecraft.class_374 toastManager = client.method_1566();
+                if (toastManager != null) {
+                    toastManager.method_1999(new ru.mqclass.ipcopy.toast.IpToast(
+                        class_2561.method_43470(success ? "§6[IPCopy] §a✔ Отчёт готов" : "§6[IPCopy] §c✖ Ошибка экспорта"),
+                        class_2561.method_43470("§f" + message)
+                    ));
+                }
+            }
+        });
+    }
 }
