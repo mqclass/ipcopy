@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "ru.mqclass"
-version = "1.3.0"
+version = "1.4.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -54,6 +54,6 @@ tasks.withType<JavaCompile> {
 
 tasks.jar {
     archiveBaseName.set("ipcopy")
-    archiveVersion.set("1.3.0")
+    archiveVersion.set("1.4.0")
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

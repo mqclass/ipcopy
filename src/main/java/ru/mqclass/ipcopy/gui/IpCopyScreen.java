@@ -16,10 +16,12 @@ import ru.mqclass.ipcopy.history.IpHistoryManager;
 import ru.mqclass.ipcopy.lookup.IpLookupManager;
 import ru.mqclass.ipcopy.lookup.IpLookupManager.PlayerIpEntry;
 import ru.mqclass.ipcopy.lookup.SubnetMatcher;
+import ru.mqclass.ipcopy.report.PlayerReportExporter;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,9 +43,11 @@ public class IpCopyScreen extends class_437 {
     private final class_437 parent;
     private Tab activeTab = Tab.LOOKUP;
     private class_342 nickField;
+    private class_342 historyFilterField;
     private static volatile String lastQueriedNick = "";
     private String currentNick = "";
     private String displayedNick = "";
+    private String historyFilter = "";
 
     // Pagination state
     private int currentPage = 0;
@@ -211,6 +215,7 @@ public class IpCopyScreen extends class_437 {
         ).method_46434(startTabX + (tabWidth + 4) * 2, tabY, tabWidth, tabHeight).method_46431());
 
         this.nickField = null;
+        this.historyFilterField = null;
 
         if (this.activeTab == Tab.LOOKUP) {
             setupLookupTab(centerX);
@@ -343,7 +348,9 @@ public class IpCopyScreen extends class_437 {
 
         // Render current page entry rows
         if (!entries.isEmpty()) {
-            int startRowY = 70;
+            int contentShift = lookupData != null && lookupData.profile != null && IpCopyConfig.getInstance().showQuickActions ? 18 : 0;
+            setupQuickActions(centerX, lookupData, entries);
+            int startRowY = 70 + contentShift;
             int rowHeight = 21;
             int startIndex = this.currentPage * ROWS_PER_PAGE;
             int endIndex = Math.min(startIndex + ROWS_PER_PAGE, totalEntries);
@@ -377,7 +384,7 @@ public class IpCopyScreen extends class_437 {
             boolean hasServerPages = lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1;
 
             if (hasServerPages) {
-                int paginationY = 178;
+                int paginationY = 178 + contentShift;
                 boolean canNav = canSendServerNavCommand();
                 String cmdFirst = getServerNavFirstCmd(lookupData);
                 String cmdPrev = getServerNavPrevCmd(lookupData);
@@ -432,7 +439,7 @@ public class IpCopyScreen extends class_437 {
                 this.btnServerLast.field_22763 = canNav && lookupData.serverCurrentPage < lookupData.serverTotalPages;
                 this.method_37063(this.btnServerLast);
             } else if (maxPages > 1) {
-                int paginationY = 178;
+                int paginationY = 178 + contentShift;
 
                 class_4185 prevBtn = class_4185.method_46430(
                     class_2561.method_43470("§f◀"),
@@ -484,14 +491,21 @@ public class IpCopyScreen extends class_437 {
                     copyToClipboard(joined);
                     button.method_25355(class_2561.method_43470("§aСкопировано!"));
                 }
-            ).method_46434(centerX - 145, bottomY, 160, 20)
+            ).method_46434(centerX - 188, bottomY, 120, 20)
              .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать все уникальные IP через пробел\n§7Всего уникальных адресов: §f" + uniqueCount)))
+             .method_46431());
+
+            this.method_37063(class_4185.method_46430(
+                class_2561.method_43470("§b💾 Экспорт"),
+                button -> exportCurrentPlayerReport(button, lookupData, entries)
+            ).method_46434(centerX - 63, bottomY, 116, 20)
+             .method_46436(class_7919.method_47407(class_2561.method_43470("§bСохранить отчёт об игроке\n§7Папка: §f.minecraft/ipcopy/reports")))
              .method_46431());
 
             this.method_37063(class_4185.method_46430(
                 class_2561.method_43470("§fЗакрыть"),
                 button -> this.method_25419()
-            ).method_46434(centerX + 35, bottomY, 110, 20)
+            ).method_46434(centerX + 58, bottomY, 130, 20)
              .method_46436(class_7919.method_47407(class_2561.method_43470("§7Закрыть панель модератора §8(Escape)")))
              .method_46431());
         } else {
@@ -505,8 +519,30 @@ public class IpCopyScreen extends class_437 {
     }
 
     private void setupHistoryTab(int centerX) {
-        List<IpHistoryManager.HistoryEntry> history = IpHistoryManager.getDetailedHistory();
+        List<IpHistoryManager.HistoryEntry> history = getFilteredHistory();
         int totalEntries = history.size();
+
+        this.historyFilterField = new class_342(this.field_22793, centerX + 24, 31, 138, 18, class_2561.method_43470("IP, /24 или время..."));
+        this.historyFilterField.method_1880(32);
+        this.historyFilterField.method_1852(this.historyFilter);
+        this.historyFilterField.method_1863(text -> {
+            this.historyFilter = text == null ? "" : text.trim();
+            this.currentPage = 0;
+            this.rebuildWidgets();
+            if (this.historyFilterField != null) {
+                this.historyFilterField.method_25365(true);
+                this.method_25395(this.historyFilterField);
+            }
+        });
+        this.method_37063(this.historyFilterField);
+        class_4185 clearFilter = class_4185.method_46430(
+            class_2561.method_43470("§c✖"),
+            button -> clearHistoryFilter(true)
+        ).method_46434(centerX + 165, 31, 18, 18)
+         .method_46436(class_7919.method_47407(class_2561.method_43470("§cСбросить фильтр истории")))
+         .method_46431();
+        clearFilter.field_22763 = !this.historyFilter.isEmpty();
+        this.method_37063(clearFilter);
         int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
 
         if (this.currentPage >= maxPages) {
@@ -595,7 +631,8 @@ public class IpCopyScreen extends class_437 {
             this.method_37063(class_4185.method_46430(
                 class_2561.method_43470("§e📋 Все (" + totalEntries + ")"),
                 button -> {
-                    List<String> allIps = IpHistoryManager.getHistory();
+                    List<String> allIps = new ArrayList<>();
+                    for (IpHistoryManager.HistoryEntry entry : history) allIps.add(entry.ip());
                     String joined = String.join(" ", allIps);
                     copyToClipboard(joined);
                     button.method_25355(class_2561.method_43470("§aСкопировано!"));
@@ -742,6 +779,17 @@ public class IpCopyScreen extends class_437 {
          )))
          .method_46431());
 
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470(getQuickActionsText(config.showQuickActions)),
+            button -> {
+                config.showQuickActions = !config.showQuickActions;
+                button.method_25355(class_2561.method_43470(getQuickActionsText(config.showQuickActions)));
+                IpCopyConfig.save();
+            }
+        ).method_46434(rightX, startY + spacing * 5, btnWidth, btnHeight)
+         .method_46436(class_7919.method_47407(class_2561.method_43470("§eПанель быстрых команд\n§7Шаблоны настраиваются в config/ipcopy.json")))
+         .method_46431());
+
         // Bottom action buttons
         int bottomY = this.field_22790 - 26;
         this.method_37063(class_4185.method_46430(
@@ -825,10 +873,94 @@ public class IpCopyScreen extends class_437 {
         }
     }
 
+    private List<IpHistoryManager.HistoryEntry> getFilteredHistory() {
+        List<IpHistoryManager.HistoryEntry> all = IpHistoryManager.getDetailedHistory();
+        String query = this.historyFilter == null ? "" : this.historyFilter.trim().toLowerCase(Locale.ROOT);
+        if (query.isEmpty()) return all;
+        List<IpHistoryManager.HistoryEntry> filtered = new ArrayList<>();
+        for (IpHistoryManager.HistoryEntry entry : all) {
+            if (entry.ip().toLowerCase(Locale.ROOT).contains(query)
+                || entry.getSubnet24().toLowerCase(Locale.ROOT).contains(query)
+                || entry.getFormattedTime().toLowerCase(Locale.ROOT).contains(query)) {
+                filtered.add(entry);
+            }
+        }
+        return filtered;
+    }
+
+    private void clearHistoryFilter(boolean keepFocus) {
+        this.historyFilter = "";
+        this.currentPage = 0;
+        this.rebuildWidgets();
+        if (keepFocus && this.historyFilterField != null) {
+            this.historyFilterField.method_25365(true);
+            this.method_25395(this.historyFilterField);
+        }
+    }
+
+    private void setupQuickActions(int centerX, IpLookupManager.PlayerLookupData data, List<PlayerIpEntry> entries) {
+        IpCopyConfig config = IpCopyConfig.getInstance();
+        if (!config.showQuickActions || data == null || data.profile == null || config.quickActions == null) return;
+        String ip = entries.isEmpty() ? "" : entries.get(0).ip();
+        int shown = Math.min(4, config.quickActions.size());
+        for (int i = 0; i < shown; i++) {
+            IpCopyConfig.QuickAction action = config.quickActions.get(i);
+            int x = centerX - 182 + i * 76;
+            this.method_37063(class_4185.method_46430(
+                class_2561.method_43470(action.color + action.name),
+                button -> executeQuickAction(action, data.profile, ip)
+            ).method_46434(x, 49, 72, 16)
+             .method_46436(class_7919.method_47407(class_2561.method_43470("§eБыстрое действие\n§7Шаблон: §f/" + action.command)))
+             .method_46431());
+        }
+    }
+
+    private void executeQuickAction(IpCopyConfig.QuickAction action, IpLookupManager.PlayerProfile profile, String ip) {
+        if (action == null || profile == null || action.command == null) return;
+        String cmd = action.command
+            .replace("{nick}", sanitizeNick(profile.nick()))
+            .replace("{ip}", ip == null ? "" : ip)
+            .replace("{uuid}", profile.uuid() == null ? "" : profile.uuid())
+            .replace('\r', ' ').replace('\n', ' ').trim();
+        if (cmd.startsWith("/")) cmd = cmd.substring(1).trim();
+        if (cmd.isEmpty() || cmd.length() > 256 || cmd.contains("{") || cmd.contains("}")) return;
+        IpLookupManager.executeServerCommand(cmd);
+    }
+
+    private void exportCurrentPlayerReport(class_4185 button, IpLookupManager.PlayerLookupData data, List<PlayerIpEntry> entries) {
+        if (data == null || this.displayedNick.isEmpty()) return;
+        button.field_22763 = false;
+        button.method_25355(class_2561.method_43470("§7Сохранение..."));
+        PlayerReportExporter.export(this.displayedNick, data.profile, entries, data.allCollectedIps).whenComplete((path, error) -> {
+            class_310 client = class_310.method_1551();
+            if (client == null) return;
+            client.execute(() -> {
+                if (error == null && path != null) {
+                    button.method_25355(class_2561.method_43470("§a✔ Сохранено"));
+                    IpFeedback.onReportExported(path.getFileName().toString(), true);
+                } else {
+                    button.method_25355(class_2561.method_43470("§cОшибка"));
+                    IpFeedback.onReportExported("Не удалось сохранить отчёт", false);
+                }
+                button.field_22763 = true;
+            });
+        });
+    }
+
     @Override
     public boolean method_25404(class_11908 keyEvent) {
         if (keyEvent != null) {
             int keyCode = keyEvent.comp_4795();
+
+            if (keyCode == 256 && this.activeTab == Tab.HISTORY && this.historyFilterField != null && this.historyFilterField.method_25370()) {
+                if (!this.historyFilter.isEmpty()) {
+                    clearHistoryFilter(true);
+                } else {
+                    this.historyFilterField.method_25365(false);
+                    this.method_25395(null);
+                }
+                return true;
+            }
 
             // Enter triggers query when typing nickname in lookup tab
             if (keyCode == 257 || keyCode == 335) {
@@ -847,7 +979,9 @@ public class IpCopyScreen extends class_437 {
             }
 
             // Arrow keys handle instant pagination when text field is not focused
-            if ((this.activeTab == Tab.LOOKUP || this.activeTab == Tab.HISTORY) && (this.nickField == null || !this.nickField.method_25370())) {
+            boolean textFieldFocused = (this.nickField != null && this.nickField.method_25370())
+                || (this.historyFilterField != null && this.historyFilterField.method_25370());
+            if ((this.activeTab == Tab.LOOKUP || this.activeTab == Tab.HISTORY) && !textFieldFocused) {
                 if (this.activeTab == Tab.LOOKUP) {
                     IpLookupManager.PlayerLookupData lookupData = (!this.displayedNick.isEmpty()) ? IpLookupManager.getData(this.displayedNick) : null;
                     if (lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1) {
@@ -869,7 +1003,7 @@ public class IpCopyScreen extends class_437 {
 
                 int totalEntries = (this.activeTab == Tab.LOOKUP)
                     ? ((!this.displayedNick.isEmpty()) ? IpLookupManager.getEntries(this.displayedNick).size() : 0)
-                    : IpHistoryManager.size();
+                    : getFilteredHistory().size();
                 int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
 
                 if (keyCode == 263 && this.currentPage > 0) {
@@ -905,7 +1039,7 @@ public class IpCopyScreen extends class_437 {
 
             int totalEntries = (this.activeTab == Tab.LOOKUP)
                 ? ((!this.displayedNick.isEmpty()) ? IpLookupManager.getEntries(this.displayedNick).size() : 0)
-                : IpHistoryManager.size();
+                : getFilteredHistory().size();
             int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
 
             if (maxPages > 1) {
@@ -1083,9 +1217,10 @@ public class IpCopyScreen extends class_437 {
             } else {
                 int totalEntries = entries.size();
                 int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
+                int contentShift = profile != null && IpCopyConfig.getInstance().showQuickActions ? 18 : 0;
 
                 // Table background card (semi-transparent dark container)
-                context.method_25294(centerX - 188, 66, centerX + 188, 174, 0x40000000);
+                context.method_25294(centerX - 188, 66 + contentShift, centerX + 188, 174 + contentShift, 0x40000000);
 
                 // Subnet occurrence counts for smart badge detection
                 List<String> entryIps = new ArrayList<>(entries.size());
@@ -1108,11 +1243,11 @@ public class IpCopyScreen extends class_437 {
                     context,
                     class_2561.method_43470(headerText),
                     centerX - 185,
-                    54,
+                    54 + contentShift,
                     0xFFFFFFFF
                 );
 
-                int startRowY = 70;
+                int startRowY = 70 + contentShift;
                 int rowHeight = 21;
                 int startIndex = this.currentPage * ROWS_PER_PAGE;
                 int endIndex = Math.min(startIndex + ROWS_PER_PAGE, totalEntries);
@@ -1169,7 +1304,7 @@ public class IpCopyScreen extends class_437 {
                         context,
                         class_2561.method_43470(pageStatus),
                         centerX,
-                        183,
+                        183 + contentShift,
                         0xFFFFFFFF
                     );
                 } else if (maxPages > 1) {
@@ -1177,26 +1312,29 @@ public class IpCopyScreen extends class_437 {
                         context,
                         class_2561.method_43470("§7Стр. §e" + (this.currentPage + 1) + "§7/§e" + maxPages),
                         centerX,
-                        183,
+                        183 + contentShift,
                         0xFFFFFFFF
                     );
                 }
             }
         } else if (this.activeTab == Tab.HISTORY) {
-            List<IpHistoryManager.HistoryEntry> history = IpHistoryManager.getDetailedHistory();
+            List<IpHistoryManager.HistoryEntry> history = getFilteredHistory();
             int totalEntries = history.size();
+            int fullHistorySize = IpHistoryManager.size();
+
+            drawText(context, class_2561.method_43470("§7Найдено: §e" + totalEntries + "§7/§e" + fullHistorySize), centerX - 185, 38, 0xFFAAAAAA);
 
             if (history.isEmpty()) {
                 drawCenteredText(
                     context,
-                    class_2561.method_43470("§7История скопированных IP в этой сессии пуста."),
+                    class_2561.method_43470(fullHistorySize > 0 ? "§eПо текущему фильтру совпадений нет." : "§7История скопированных IP в этой сессии пуста."),
                     centerX,
                     95,
-                    0xFFAAAAAA
+                    fullHistorySize > 0 ? 0xFFFFFF55 : 0xFFAAAAAA
                 );
                 drawCenteredText(
                     context,
-                    class_2561.method_43470("§8Копируйте IP в чате или через дашборд — они сразу появятся здесь!"),
+                    class_2561.method_43470(fullHistorySize > 0 ? "§8Очистите фильтр кнопкой ✖ или клавишей Escape." : "§8Копируйте IP в чате или через дашборд — они сразу появятся здесь!"),
                     centerX,
                     110,
                     0xFF888888
@@ -1206,15 +1344,6 @@ public class IpCopyScreen extends class_437 {
 
                 // Card container background
                 context.method_25294(centerX - 188, 52, centerX + 188, 164, 0x40000000);
-
-                // Table header
-                drawText(
-                    context,
-                    class_2561.method_43470("§6История скопированных IP §7(Всего: " + totalEntries + "):"),
-                    centerX - 185,
-                    40,
-                    0xFFFFFFFF
-                );
 
                 int startRowY = 56;
                 int rowHeight = 21;
@@ -1308,5 +1437,9 @@ public class IpCopyScreen extends class_437 {
 
     private static String getSilentModeText(boolean state) {
         return "§7Чат: " + (state ? "§cСкрытый" : "§aОбычный");
+    }
+
+    private static String getQuickActionsText(boolean state) {
+        return "§7Быстрые действия: " + (state ? "§aВКЛ" : "§cВЫКЛ");
     }
 }
