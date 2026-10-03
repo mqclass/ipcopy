@@ -37,11 +37,17 @@ public class IpCopyScreen extends class_437 {
         SETTINGS
     }
 
+    public enum LookupViewMode {
+        UNIQUE_IPS,
+        ALL_SESSIONS
+    }
+
     private static final int ROWS_PER_PAGE = 5;
     private static final long QUERY_TIMEOUT_MS = 5000L;
 
     private final class_437 parent;
     private Tab activeTab = Tab.LOOKUP;
+    private LookupViewMode lookupViewMode = IpCopyConfig.getInstance().preferUniqueIpsView ? LookupViewMode.UNIQUE_IPS : LookupViewMode.ALL_SESSIONS;
     private class_342 nickField;
     private class_342 historyFilterField;
     private static volatile String lastQueriedNick = "";
@@ -313,168 +319,344 @@ public class IpCopyScreen extends class_437 {
          .method_46436(class_7919.method_47407(class_2561.method_43470("§aЗагрузить тестовый профиль Odinoky\n§7Демонстрация профиля (UUID, VK, TG) и 6 сессий с подсетями /24")))
          .method_46431());
 
-        // Profile Info button with rich tooltip and 1-click UUID copy
-        if (lookupData != null && lookupData.profile != null) {
-            IpLookupManager.PlayerProfile profile = lookupData.profile;
-            String tooltipText = "§6§lИнформация об игроке\n" +
-                "§7Ник: §f" + profile.nick() + "\n" +
-                "§7UUID: §8" + profile.uuid() + "\n" +
-                "§7Премиум: §f" + profile.premium() + "\n" +
-                "§7VK: §b" + profile.vk() + "\n" +
-                "§7Telegram: §b" + profile.telegram() + "\n" +
-                "§7Discord: §8" + profile.discord() + "\n" +
-                "§e(Нажмите, чтобы скопировать UUID)";
+        // Automation and View Switcher Toolbar (if player has lookup data)
+        if (lookupData != null && lookupData.status == IpLookupManager.LookupStatus.FOUND) {
+            int toolbarY = 51;
+            List<IpLookupManager.UniqueIpGroup> uniqueGroups = IpLookupManager.getUniqueGroups(this.displayedNick);
+            List<PlayerIpEntry> allSessionsList = IpLookupManager.getAllSessions(this.displayedNick);
+            int uniqueCount = uniqueGroups.size();
+            int totalSessionsCount = !allSessionsList.isEmpty() ? allSessionsList.size() : lookupData.entries.size();
 
+            // Toggle 1: Unique IPs view
+            String uniqueTitle = (this.lookupViewMode == LookupViewMode.UNIQUE_IPS ? "§6§l⭐ Уник. IP (" + uniqueCount + ")" : "§7⭐ Уник. IP (" + uniqueCount + ")");
             this.method_37063(class_4185.method_46430(
-                class_2561.method_43470("§bℹ Инфо"),
+                class_2561.method_43470(uniqueTitle),
                 btn -> {
-                    if (profile.uuid() != null && !profile.uuid().isEmpty()) {
-                        copyToClipboard(profile.uuid());
-                        btn.method_25355(class_2561.method_43470("§aСкопирован"));
-                    }
+                    this.lookupViewMode = LookupViewMode.UNIQUE_IPS;
+                    this.currentPage = 0;
+                    this.rebuildWidgets();
                 }
-            ).method_46434(centerX + 128, 49, 54, 16)
-             .method_46436(class_7919.method_47407(class_2561.method_43470(tooltipText)))
+            ).method_46434(centerX - 188, toolbarY, 92, 17)
+             .method_46436(class_7919.method_47407(class_2561.method_43470("§eРежим сгруппированных уникальных IP\n§7Объединяет одинаковые IP в строки с подсчётом сессий и твинками")))
              .method_46431());
+
+            // Toggle 2: All sessions view
+            String sessionsTitle = (this.lookupViewMode == LookupViewMode.ALL_SESSIONS ? "§6§l📋 Сессии (" + totalSessionsCount + ")" : "§7📋 Сессии (" + totalSessionsCount + ")");
+            this.method_37063(class_4185.method_46430(
+                class_2561.method_43470(sessionsTitle),
+                btn -> {
+                    this.lookupViewMode = LookupViewMode.ALL_SESSIONS;
+                    this.currentPage = 0;
+                    this.rebuildWidgets();
+                }
+            ).method_46434(centerX - 92, toolbarY, 88, 17)
+             .method_46436(class_7919.method_47407(class_2561.method_43470("§eРежим всех сессий\n§7Показывает каждую сессию по отдельности с точным временем")))
+             .method_46431());
+
+            // Auto-Crawler button
+            if (lookupData.serverTotalPages > 1) {
+                if (IpLookupManager.isAutoCrawling()) {
+                    this.method_37063(class_4185.method_46430(
+                        class_2561.method_43470("§e⏳ " + IpLookupManager.getAutoCrawlCurrentPage() + "/" + lookupData.serverTotalPages + " стр."),
+                        btn -> {}
+                    ).method_46434(centerX + 0, toolbarY, 78, 17)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§eАвто-сбор страниц в процессе...\n§7Безопасная задержка 1.35с между командами")))
+                     .method_46431());
+
+                    this.method_37063(class_4185.method_46430(
+                        class_2561.method_43470("§c⏹"),
+                        btn -> IpLookupManager.stopAutoCrawl(false)
+                    ).method_46434(centerX + 80, toolbarY, 18, 17)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§cОстановить авто-сбор страниц")))
+                     .method_46431());
+                } else {
+                    this.method_37063(class_4185.method_46430(
+                        class_2561.method_43470("§6⚡ Собрать всё (" + lookupData.serverTotalPages + ")"),
+                        btn -> {
+                            IpLookupManager.startAutoCrawl(this.displayedNick);
+                            this.rebuildWidgets();
+                        }
+                    ).method_46434(centerX + 0, toolbarY, 98, 17)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§6Автоматически собрать все " + lookupData.serverTotalPages + " страниц сессий\n§7Скачивает все страницы с безопасной паузой 1.35с без ручных кликов")))
+                     .method_46431());
+                }
+            }
+
+            // Batch Dupe button
+            if (IpLookupManager.isBatchDupeRunning()) {
+                this.method_37063(class_4185.method_46430(
+                    class_2561.method_43470("§b⏳ " + IpLookupManager.getBatchDupeProgress()),
+                    btn -> {}
+                ).method_46434(centerX + 102, toolbarY, 66, 17)
+                 .method_46436(class_7919.method_47407(class_2561.method_43470("§bПроверка твинков DupeIP в процессе...")))
+                 .method_46431());
+
+                this.method_37063(class_4185.method_46430(
+                    class_2561.method_43470("§c⏹"),
+                    btn -> IpLookupManager.stopBatchDupe(false)
+                ).method_46434(centerX + 170, toolbarY, 18, 17)
+                 .method_46436(class_7919.method_47407(class_2561.method_43470("§cОстановить проверку DupeIP")))
+                 .method_46431());
+            } else {
+                this.method_37063(class_4185.method_46430(
+                    class_2561.method_43470("§b⚡ DupeIP (" + uniqueCount + ")"),
+                    btn -> {
+                        IpLookupManager.startBatchDupe(this.displayedNick);
+                        this.rebuildWidgets();
+                    }
+                ).method_46434(centerX + 102, toolbarY, 86, 17)
+                 .method_46436(class_7919.method_47407(class_2561.method_43470("§bАвтоматически проверить все " + uniqueCount + " уникальных IP через /dupeip\n§7Находит твинки и подсвечивает их прямо в таблице!")))
+                 .method_46431());
+            }
         }
 
         List<PlayerIpEntry> entries = (!this.displayedNick.isEmpty()) ? IpLookupManager.getEntries(this.displayedNick) : java.util.Collections.emptyList();
-        int totalEntries = entries.size();
-        int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
-
-        if (this.currentPage >= maxPages) {
-            this.currentPage = maxPages - 1;
+        int contentShift = (lookupData != null && lookupData.profile != null && IpCopyConfig.getInstance().showQuickActions) ? 18 : 0;
+        if (!entries.isEmpty() || (lookupData != null && !lookupData.allSessions.isEmpty())) {
+            setupQuickActions(centerX, lookupData, entries);
         }
 
-        // Render current page entry rows
-        if (!entries.isEmpty()) {
-            int contentShift = lookupData != null && lookupData.profile != null && IpCopyConfig.getInstance().showQuickActions ? 18 : 0;
-            setupQuickActions(centerX, lookupData, entries);
-            int startRowY = 70 + contentShift;
-            int rowHeight = 21;
-            int startIndex = this.currentPage * ROWS_PER_PAGE;
-            int endIndex = Math.min(startIndex + ROWS_PER_PAGE, totalEntries);
+        int startRowY = 70 + contentShift;
+        int rowHeight = 21;
 
-            for (int i = startIndex; i < endIndex; i++) {
-                PlayerIpEntry entry = entries.get(i);
-                int rowOffset = i - startIndex;
-                int rowY = startRowY + (rowOffset * rowHeight);
+        if (this.lookupViewMode == LookupViewMode.UNIQUE_IPS) {
+            List<IpLookupManager.UniqueIpGroup> uniqueGroups = (!this.displayedNick.isEmpty()) ? IpLookupManager.getUniqueGroups(this.displayedNick) : java.util.Collections.emptyList();
+            int totalUnique = uniqueGroups.size();
+            int maxPages = Math.max(1, (int) Math.ceil((double) totalUnique / ROWS_PER_PAGE));
+            if (this.currentPage >= maxPages) this.currentPage = maxPages - 1;
 
-                // Copy IP button with rich tooltip
-                this.method_37063(class_4185.method_46430(
-                    class_2561.method_43470("§6Скоп. IP"),
-                    button -> {
-                        copyToClipboard(entry.ip());
-                        button.method_25355(class_2561.method_43470("§aСкопирован"));
+            if (!uniqueGroups.isEmpty()) {
+                int startIndex = this.currentPage * ROWS_PER_PAGE;
+                int endIndex = Math.min(startIndex + ROWS_PER_PAGE, totalUnique);
+
+                for (int i = startIndex; i < endIndex; i++) {
+                    IpLookupManager.UniqueIpGroup group = uniqueGroups.get(i);
+                    int rowOffset = i - startIndex;
+                    int rowY = startRowY + (rowOffset * rowHeight);
+
+                    // 1. Twinks badge button / status
+                    if (group.checked()) {
+                        if (!group.twinks().isEmpty()) {
+                            class_4185 twinkBtn = class_4185.method_46430(
+                                class_2561.method_43470("§c⚠ " + group.twinks().size() + " тв."),
+                                btn -> {
+                                    String twinksStr = String.join(", ", group.twinks());
+                                    copyToClipboard(twinksStr);
+                                    IpFeedback.onTwinksCopied(group.ip(), group.twinks().size());
+                                    btn.method_25355(class_2561.method_43470("§aСкопированы"));
+                                }
+                            ).method_46434(centerX - 12, rowY - 1, 70, 18)
+                             .method_46436(class_7919.method_47407(class_2561.method_43470(
+                                 "§cОбнаружены твинки по IP §e" + group.ip() + "§c:\n§f" + String.join(", ", group.twinks()) + "\n§e(Нажмите для копирования твинков)"
+                             )))
+                             .method_46431();
+                            this.method_37063(twinkBtn);
+                        } else {
+                            class_4185 cleanBtn = class_4185.method_46430(
+                                class_2561.method_43470("§a✔ Чист"),
+                                btn -> executeDupeCheck(group.ip())
+                            ).method_46434(centerX - 12, rowY - 1, 70, 18)
+                             .method_46436(class_7919.method_47407(class_2561.method_43470(
+                                 "§aПо IP §e" + group.ip() + " §aтвинков не найдено.\n§7(Нажмите для повторной проверки /dupeip)"
+                             )))
+                             .method_46431();
+                            this.method_37063(cleanBtn);
+                        }
+                    } else {
+                        class_4185 checkBtn = class_4185.method_46430(
+                            class_2561.method_43470("§7? Dupe"),
+                            btn -> executeDupeCheck(group.ip())
+                        ).method_46434(centerX - 12, rowY - 1, 70, 18)
+                         .method_46436(class_7919.method_47407(class_2561.method_43470(
+                             "§7Проверить твинки по IP: §f" + group.ip() + "\n§8Выполнить команду /dupeip"
+                         )))
+                         .method_46431();
+                        this.method_37063(checkBtn);
                     }
-                ).method_46434(centerX + 62, rowY - 1, 62, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать IP: §f" + entry.ip() + "\n§7Нажмите для помещения в буфер обмена")))
-                 .method_46431());
 
-                // DupeIP action button
-                this.method_37063(class_4185.method_46430(
-                    class_2561.method_43470("§bDupeIP"),
-                    button -> executeDupeCheck(entry.ip())
-                ).method_46434(centerX + 128, rowY - 1, 54, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470("§bПроверить твинки по этому IP\n§7Выполняет команду: §f/dupeip " + entry.ip())))
-                 .method_46431());
+                    // 2. [Скоп. IP] button
+                    this.method_37063(class_4185.method_46430(
+                        class_2561.method_43470("§6Скоп. IP"),
+                        button -> {
+                            copyToClipboard(group.ip());
+                            button.method_25355(class_2561.method_43470("§aСкопирован"));
+                        }
+                    ).method_46434(centerX + 62, rowY - 1, 62, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать IP: §f" + group.ip() + "\n§7Всего сессий: §f" + group.count())))
+                     .method_46431());
+
+                    // 3. [DupeIP] action button
+                    this.method_37063(class_4185.method_46430(
+                        class_2561.method_43470("§bDupeIP"),
+                        button -> executeDupeCheck(group.ip())
+                    ).method_46434(centerX + 128, rowY - 1, 54, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§bПроверить твинки по этому IP\n§7Выполняет команду: §f/dupeip " + group.ip())))
+                     .method_46431());
+                }
+
+                // Pagination if unique groups > 5
+                if (maxPages > 1) {
+                    int paginationY = 178 + contentShift;
+                    class_4185 prevBtn = class_4185.method_46430(
+                        class_2561.method_43470("§f◀"),
+                        button -> {
+                            if (this.currentPage > 0) {
+                                this.currentPage--;
+                                this.rebuildWidgets();
+                            }
+                        }
+                    ).method_46434(centerX - 75, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§7Предыдущая страница §8(Стрелка влево)")))
+                     .method_46431();
+                    prevBtn.field_22763 = (this.currentPage > 0);
+                    this.method_37063(prevBtn);
+
+                    class_4185 nextBtn = class_4185.method_46430(
+                        class_2561.method_43470("§f▶"),
+                        button -> {
+                            if (this.currentPage < maxPages - 1) {
+                                this.currentPage++;
+                                this.rebuildWidgets();
+                            }
+                        }
+                    ).method_46434(centerX + 53, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§7Следующая страница §8(Стрелка вправо)")))
+                     .method_46431();
+                    nextBtn.field_22763 = (this.currentPage < maxPages - 1);
+                    this.method_37063(nextBtn);
+                }
             }
+        } else {
+            // Mode: ALL_SESSIONS
+            int totalEntries = entries.size();
+            int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
+            if (this.currentPage >= maxPages) this.currentPage = maxPages - 1;
 
-            // Pagination navigation controls
-            boolean hasServerPages = lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1;
+            if (!entries.isEmpty()) {
+                int startIndex = this.currentPage * ROWS_PER_PAGE;
+                int endIndex = Math.min(startIndex + ROWS_PER_PAGE, totalEntries);
 
-            if (hasServerPages) {
-                int paginationY = 178 + contentShift;
-                boolean canNav = canSendServerNavCommand();
-                String cmdFirst = getServerNavFirstCmd(lookupData);
-                String cmdPrev = getServerNavPrevCmd(lookupData);
-                String cmdNext = getServerNavNextCmd(lookupData);
-                String cmdLast = getServerNavLastCmd(lookupData);
+                for (int i = startIndex; i < endIndex; i++) {
+                    PlayerIpEntry entry = entries.get(i);
+                    int rowOffset = i - startIndex;
+                    int rowY = startRowY + (rowOffset * rowHeight);
 
-                // [⏮] First page
-                this.btnServerFirst = class_4185.method_46430(
-                    class_2561.method_43470("§f⏮"),
-                    button -> executeServerNavCommand(cmdFirst)
-                ).method_46434(centerX - 87, paginationY, 22, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eПервая страница (1/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (cmdFirst != null ? cmdFirst : "—")
-                 )))
-                 .method_46431();
-                this.btnServerFirst.field_22763 = canNav && lookupData.serverCurrentPage > 1;
-                this.method_37063(this.btnServerFirst);
-
-                // [◀] Previous page
-                this.btnServerPrev = class_4185.method_46430(
-                    class_2561.method_43470("§f◀"),
-                    button -> executeServerNavCommand(cmdPrev)
-                ).method_46434(centerX - 62, paginationY, 22, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eПредыдущая страница\n§7Команда: §f" + (cmdPrev != null ? cmdPrev : "—")
-                 )))
-                 .method_46431();
-                this.btnServerPrev.field_22763 = canNav && lookupData.serverCurrentPage > 1;
-                this.method_37063(this.btnServerPrev);
-
-                // [▶] Next page
-                this.btnServerNext = class_4185.method_46430(
-                    class_2561.method_43470("§f▶"),
-                    button -> executeServerNavCommand(cmdNext)
-                ).method_46434(centerX + 40, paginationY, 22, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eСледующая страница\n§7Команда: §f" + (cmdNext != null ? cmdNext : "—")
-                 )))
-                 .method_46431();
-                this.btnServerNext.field_22763 = canNav && lookupData.serverCurrentPage < lookupData.serverTotalPages;
-                this.method_37063(this.btnServerNext);
-
-                // [⏭] Last page
-                this.btnServerLast = class_4185.method_46430(
-                    class_2561.method_43470("§f⏭"),
-                    button -> executeServerNavCommand(cmdLast)
-                ).method_46434(centerX + 65, paginationY, 22, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470(
-                     "§eПоследняя страница (" + lookupData.serverTotalPages + "/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (cmdLast != null ? cmdLast : "—")
-                 )))
-                 .method_46431();
-                this.btnServerLast.field_22763 = canNav && lookupData.serverCurrentPage < lookupData.serverTotalPages;
-                this.method_37063(this.btnServerLast);
-            } else if (maxPages > 1) {
-                int paginationY = 178 + contentShift;
-
-                class_4185 prevBtn = class_4185.method_46430(
-                    class_2561.method_43470("§f◀"),
-                    button -> {
-                        if (this.currentPage > 0) {
-                            this.currentPage--;
-                            this.rebuildWidgets();
+                    // Copy IP button with rich tooltip
+                    this.method_37063(class_4185.method_46430(
+                        class_2561.method_43470("§6Скоп. IP"),
+                        button -> {
+                            copyToClipboard(entry.ip());
+                            button.method_25355(class_2561.method_43470("§aСкопирован"));
                         }
-                    }
-                ).method_46434(centerX - 75, paginationY, 22, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470("§7Предыдущая страница §8(Стрелка влево)")))
-                 .method_46431();
-                prevBtn.field_22763 = (this.currentPage > 0);
-                this.method_37063(prevBtn);
+                    ).method_46434(centerX + 62, rowY - 1, 62, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать IP: §f" + entry.ip() + "\n§7Нажмите для помещения в буфер обмена")))
+                     .method_46431());
 
-                class_4185 nextBtn = class_4185.method_46430(
-                    class_2561.method_43470("§f▶"),
-                    button -> {
-                        if (this.currentPage < maxPages - 1) {
-                            this.currentPage++;
-                            this.rebuildWidgets();
+                    // DupeIP action button
+                    this.method_37063(class_4185.method_46430(
+                        class_2561.method_43470("§bDupeIP"),
+                        button -> executeDupeCheck(entry.ip())
+                    ).method_46434(centerX + 128, rowY - 1, 54, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§bПроверить твинки по этому IP\n§7Выполняет команду: §f/dupeip " + entry.ip())))
+                     .method_46431());
+                }
+
+                // Server pagination or client pagination
+                boolean hasServerPages = lookupData != null && lookupData.hasServerPagination && lookupData.serverTotalPages > 1;
+
+                if (hasServerPages) {
+                    int paginationY = 178 + contentShift;
+                    boolean canNav = canSendServerNavCommand();
+                    String cmdFirst = getServerNavFirstCmd(lookupData);
+                    String cmdPrev = getServerNavPrevCmd(lookupData);
+                    String cmdNext = getServerNavNextCmd(lookupData);
+                    String cmdLast = getServerNavLastCmd(lookupData);
+
+                    // [⏮] First page
+                    this.btnServerFirst = class_4185.method_46430(
+                        class_2561.method_43470("§f⏮"),
+                        button -> executeServerNavCommand(cmdFirst)
+                    ).method_46434(centerX - 87, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470(
+                         "§eПервая страница (1/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (cmdFirst != null ? cmdFirst : "—")
+                     )))
+                     .method_46431();
+                    this.btnServerFirst.field_22763 = canNav && lookupData.serverCurrentPage > 1;
+                    this.method_37063(this.btnServerFirst);
+
+                    // [◀] Previous page
+                    this.btnServerPrev = class_4185.method_46430(
+                        class_2561.method_43470("§f◀"),
+                        button -> executeServerNavCommand(cmdPrev)
+                    ).method_46434(centerX - 62, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470(
+                         "§eПредыдущая страница\n§7Команда: §f" + (cmdPrev != null ? cmdPrev : "—")
+                     )))
+                     .method_46431();
+                    this.btnServerPrev.field_22763 = canNav && lookupData.serverCurrentPage > 1;
+                    this.method_37063(this.btnServerPrev);
+
+                    // [▶] Next page
+                    this.btnServerNext = class_4185.method_46430(
+                        class_2561.method_43470("§f▶"),
+                        button -> executeServerNavCommand(cmdNext)
+                    ).method_46434(centerX + 40, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470(
+                         "§eСледующая страница\n§7Команда: §f" + (cmdNext != null ? cmdNext : "—")
+                     )))
+                     .method_46431();
+                    this.btnServerNext.field_22763 = canNav && lookupData.serverCurrentPage < lookupData.serverTotalPages;
+                    this.method_37063(this.btnServerNext);
+
+                    // [⏭] Last page
+                    this.btnServerLast = class_4185.method_46430(
+                        class_2561.method_43470("§f⏭"),
+                        button -> executeServerNavCommand(cmdLast)
+                    ).method_46434(centerX + 65, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470(
+                         "§eПоследняя страница (" + lookupData.serverTotalPages + "/" + lookupData.serverTotalPages + ")\n§7Команда: §f" + (cmdLast != null ? cmdLast : "—")
+                     )))
+                     .method_46431();
+                    this.btnServerLast.field_22763 = canNav && lookupData.serverCurrentPage < lookupData.serverTotalPages;
+                    this.method_37063(this.btnServerLast);
+                } else if (maxPages > 1) {
+                    int paginationY = 178 + contentShift;
+
+                    class_4185 prevBtn = class_4185.method_46430(
+                        class_2561.method_43470("§f◀"),
+                        button -> {
+                            if (this.currentPage > 0) {
+                                this.currentPage--;
+                                this.rebuildWidgets();
+                            }
                         }
-                    }
-                ).method_46434(centerX + 53, paginationY, 22, 18)
-                 .method_46436(class_7919.method_47407(class_2561.method_43470("§7Следующая страница §8(Стрелка вправо)")))
-                 .method_46431();
-                nextBtn.field_22763 = (this.currentPage < maxPages - 1);
-                this.method_37063(nextBtn);
+                    ).method_46434(centerX - 75, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§7Предыдущая страница §8(Стрелка влево)")))
+                     .method_46431();
+                    prevBtn.field_22763 = (this.currentPage > 0);
+                    this.method_37063(prevBtn);
+
+                    class_4185 nextBtn = class_4185.method_46430(
+                        class_2561.method_43470("§f▶"),
+                        button -> {
+                            if (this.currentPage < maxPages - 1) {
+                                this.currentPage++;
+                                this.rebuildWidgets();
+                            }
+                        }
+                    ).method_46434(centerX + 53, paginationY, 22, 18)
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§7Следующая страница §8(Стрелка вправо)")))
+                     .method_46431();
+                    nextBtn.field_22763 = (this.currentPage < maxPages - 1);
+                    this.method_37063(nextBtn);
+                }
             }
         }
 
         // Bottom action controls
         int bottomY = this.field_22790 - 26;
 
-        if (!entries.isEmpty()) {
+        if (!entries.isEmpty() || (lookupData != null && (!lookupData.allSessions.isEmpty() || !lookupData.allCollectedIps.isEmpty()))) {
             Set<String> uniqueIps = new LinkedHashSet<>();
             if (lookupData != null && !lookupData.allCollectedIps.isEmpty()) {
                 uniqueIps.addAll(lookupData.allCollectedIps);
@@ -484,6 +666,7 @@ public class IpCopyScreen extends class_437 {
             }
             int uniqueCount = uniqueIps.size();
 
+            // 1. [📋 Все IP (N)]
             this.method_37063(class_4185.method_46430(
                 class_2561.method_43470("§e📋 Все IP (" + uniqueCount + ")"),
                 button -> {
@@ -491,21 +674,36 @@ public class IpCopyScreen extends class_437 {
                     copyToClipboard(joined);
                     button.method_25355(class_2561.method_43470("§aСкопировано!"));
                 }
-            ).method_46434(centerX - 188, bottomY, 120, 20)
+            ).method_46434(centerX - 188, bottomY, 92, 20)
              .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать все уникальные IP через пробел\n§7Всего уникальных адресов: §f" + uniqueCount)))
              .method_46431());
 
+            // 2. [📋 Досье]
+            this.method_37063(class_4185.method_46430(
+                class_2561.method_43470("§a📋 Досье"),
+                button -> {
+                    String dossier = IpLookupManager.generateExpressDossier(this.displayedNick);
+                    copyToClipboard(dossier);
+                    IpFeedback.onDossierCopied(this.displayedNick);
+                    button.method_25355(class_2561.method_43470("§aСкопировано!"));
+                }
+            ).method_46434(centerX - 92, bottomY, 88, 20)
+             .method_46436(class_7919.method_47407(class_2561.method_43470("§aСкопировать полное экспресс-досье игрока\n§7Готово для вставки в Discord/тикет: профиль, сессии, подсети, твинки")))
+             .method_46431());
+
+            // 3. [💾 Экспорт]
             this.method_37063(class_4185.method_46430(
                 class_2561.method_43470("§b💾 Экспорт"),
                 button -> exportCurrentPlayerReport(button, lookupData, entries)
-            ).method_46434(centerX - 63, bottomY, 116, 20)
+            ).method_46434(centerX + 0, bottomY, 88, 20)
              .method_46436(class_7919.method_47407(class_2561.method_43470("§bСохранить отчёт об игроке\n§7Папка: §f.minecraft/ipcopy/reports")))
              .method_46431());
 
+            // 4. [Закрыть]
             this.method_37063(class_4185.method_46430(
                 class_2561.method_43470("§fЗакрыть"),
                 button -> this.method_25419()
-            ).method_46434(centerX + 58, bottomY, 130, 20)
+            ).method_46434(centerX + 92, bottomY, 96, 20)
              .method_46436(class_7919.method_47407(class_2561.method_43470("§7Закрыть панель модератора §8(Escape)")))
              .method_46431());
         } else {
@@ -728,6 +926,27 @@ public class IpCopyScreen extends class_437 {
          )))
          .method_46431());
 
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470(getAutoFetchText(config.autoFetchAllPages)),
+            button -> {
+                config.autoFetchAllPages = !config.autoFetchAllPages;
+                button.method_25355(class_2561.method_43470(getAutoFetchText(config.autoFetchAllPages)));
+                IpCopyConfig.save();
+            }
+        ).method_46434(leftX, startY + spacing * 5, btnWidth, btnHeight)
+         .method_46436(class_7919.method_47407(class_2561.method_43470(
+             "§eАвто-сбор всех страниц\n§aВКЛ: §7при открытии игрока фоново скачиваются все страницы сессий\n§cВЫКЛ: §7ручной сбор по кнопке [⚡ Собрать всё]"
+         )))
+         .method_46431());
+
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470("§eОтправить тест"),
+            button -> {
+                IpCopyClient.sendTestMessage();
+                button.method_25355(class_2561.method_43470("§aОтправлено!"));
+            }
+        ).method_46434(leftX, startY + spacing * 6, btnWidth, btnHeight).method_46431());
+
         // Column 2
         this.method_37063(class_4185.method_46430(
             class_2561.method_43470(getSubnetText(config.highlightSubnets)),
@@ -760,22 +979,15 @@ public class IpCopyScreen extends class_437 {
         ).method_46434(rightX, startY + spacing * 2, btnWidth, btnHeight).method_46431());
 
         this.method_37063(class_4185.method_46430(
-            class_2561.method_43470("§eОтправить тест"),
+            class_2561.method_43470(getPreferUniqueIpsText(config.preferUniqueIpsView)),
             button -> {
-                IpCopyClient.sendTestMessage();
-                button.method_25355(class_2561.method_43470("§aОтправлено!"));
+                config.preferUniqueIpsView = !config.preferUniqueIpsView;
+                button.method_25355(class_2561.method_43470(getPreferUniqueIpsText(config.preferUniqueIpsView)));
+                IpCopyConfig.save();
             }
-        ).method_46434(rightX, startY + spacing * 3, btnWidth, btnHeight).method_46431());
-
-        this.method_37063(class_4185.method_46430(
-            class_2561.method_43470("§6Сброс кэша"),
-            button -> {
-                IpLookupManager.clearCache();
-                button.method_25355(class_2561.method_43470("§aСброшено!"));
-            }
-        ).method_46434(rightX, startY + spacing * 4, btnWidth, btnHeight)
+        ).method_46434(rightX, startY + spacing * 3, btnWidth, btnHeight)
          .method_46436(class_7919.method_47407(class_2561.method_43470(
-             "§6Сбросить кэш поиска игроков\n§7Очищает кэшированные профили и страницы сессий"
+             "§eВид поиска по умолчанию\n§aУник. IP: §7сгруппированные адреса с количеством входов и твинками\n§eСессии: §7список каждой сессии по отдельности"
          )))
          .method_46431());
 
@@ -786,8 +998,20 @@ public class IpCopyScreen extends class_437 {
                 button.method_25355(class_2561.method_43470(getQuickActionsText(config.showQuickActions)));
                 IpCopyConfig.save();
             }
-        ).method_46434(rightX, startY + spacing * 5, btnWidth, btnHeight)
+        ).method_46434(rightX, startY + spacing * 4, btnWidth, btnHeight)
          .method_46436(class_7919.method_47407(class_2561.method_43470("§eПанель быстрых команд\n§7Шаблоны настраиваются в config/ipcopy.json")))
+         .method_46431());
+
+        this.method_37063(class_4185.method_46430(
+            class_2561.method_43470("§6Сброс кэша"),
+            button -> {
+                IpLookupManager.clearCache();
+                button.method_25355(class_2561.method_43470("§aСброшено!"));
+            }
+        ).method_46434(rightX, startY + spacing * 5, btnWidth, btnHeight)
+         .method_46436(class_7919.method_47407(class_2561.method_43470(
+             "§6Сбросить кэш поиска игроков\n§7Очищает кэшированные профили и страницы сессий"
+         )))
          .method_46431());
 
         // Bottom action buttons
@@ -901,7 +1125,7 @@ public class IpCopyScreen extends class_437 {
     private void setupQuickActions(int centerX, IpLookupManager.PlayerLookupData data, List<PlayerIpEntry> entries) {
         IpCopyConfig config = IpCopyConfig.getInstance();
         if (!config.showQuickActions || data == null || data.profile == null || config.quickActions == null) return;
-        String ip = entries.isEmpty() ? "" : entries.get(0).ip();
+        String ip = entries.isEmpty() ? (data.allSessions.isEmpty() ? "" : data.allSessions.get(0).ip()) : entries.get(0).ip();
         int shown = Math.min(4, config.quickActions.size());
         for (int i = 0; i < shown; i++) {
             IpCopyConfig.QuickAction action = config.quickActions.get(i);
@@ -909,8 +1133,31 @@ public class IpCopyScreen extends class_437 {
             this.method_37063(class_4185.method_46430(
                 class_2561.method_43470(action.color + action.name),
                 button -> executeQuickAction(action, data.profile, ip)
-            ).method_46434(x, 49, 72, 16)
+            ).method_46434(x, 70, 72, 16)
              .method_46436(class_7919.method_47407(class_2561.method_43470("§eБыстрое действие\n§7Шаблон: §f/" + action.command)))
+             .method_46431());
+        }
+
+        // [ℹ Инфо] profile info button
+        if (data.profile != null) {
+            this.method_37063(class_4185.method_46430(
+                class_2561.method_43470("§eℹ Инфо"),
+                button -> {
+                    if (data.profile.uuid() != null && !data.profile.uuid().isEmpty()) {
+                        copyToClipboard(data.profile.uuid());
+                        button.method_25355(class_2561.method_43470("§aСкопирован"));
+                    }
+                }
+            ).method_46434(centerX + 124, 70, 58, 16)
+             .method_46436(class_7919.method_47407(class_2561.method_43470(
+                 "§6Профиль игрока: §e" + data.profile.nick() +
+                 "\n§7UUID: §f" + data.profile.uuid() +
+                 "\n§7Премиум: §f" + data.profile.premium() +
+                 "\n§9VK: §b" + data.profile.vk() +
+                 "\n§9Telegram: §b" + data.profile.telegram() +
+                 "\n§9Discord: §b" + data.profile.discord() +
+                 "\n§e(Клик для копирования UUID)"
+             )))
              .method_46431());
         }
     }
@@ -1101,7 +1348,11 @@ public class IpCopyScreen extends class_437 {
                 }
             }
 
-            if (entries.isEmpty()) {
+            List<IpLookupManager.UniqueIpGroup> uniqueGroups = (!this.displayedNick.isEmpty()) ? IpLookupManager.getUniqueGroups(this.displayedNick) : java.util.Collections.emptyList();
+            List<PlayerIpEntry> allSessionsList = (!this.displayedNick.isEmpty()) ? IpLookupManager.getAllSessions(this.displayedNick) : java.util.Collections.emptyList();
+            boolean hasAnyData = !entries.isEmpty() || !allSessionsList.isEmpty() || !uniqueGroups.isEmpty();
+
+            if (!hasAnyData) {
                 if (status == IpLookupManager.LookupStatus.NOT_REGISTERED) {
                     context.method_25294(centerX - 188, 70, centerX + 188, 132, 0x40000000);
                     drawCenteredText(
@@ -1214,8 +1465,74 @@ public class IpCopyScreen extends class_437 {
                         0xFF888888
                     );
                 }
+            } else if (this.lookupViewMode == LookupViewMode.UNIQUE_IPS) {
+                int totalSessionsCount = !allSessionsList.isEmpty() ? allSessionsList.size() : entries.size();
+                int totalUnique = uniqueGroups.size();
+                int maxPages = Math.max(1, (int) Math.ceil((double) totalUnique / ROWS_PER_PAGE));
+                int contentShift = profile != null && IpCopyConfig.getInstance().showQuickActions ? 18 : 0;
+
+                // Table background card (semi-transparent dark container)
+                context.method_25294(centerX - 188, 66 + contentShift, centerX + 188, 174 + contentShift, 0x40000000);
+
+                // Table header with social info if available
+                String headerText;
+                if (profile != null && (!profile.telegram().equals("-") || !profile.vk().equals("-"))) {
+                    String social = !profile.telegram().equals("-") ? ("§9TG: §b" + profile.telegram()) : ("§9VK: §b" + profile.vk());
+                    headerText = "§6Уник. IP §e" + this.displayedNick + " §7(" + totalUnique + " IP / " + totalSessionsCount + " вх.) §8| " + social;
+                } else {
+                    headerText = "§6Уникальные IP §e" + this.displayedNick + " §7(Уникальных: " + totalUnique + ", Всего входов: " + totalSessionsCount + "):";
+                }
+
+                drawText(
+                    context,
+                    class_2561.method_43470(headerText),
+                    centerX - 185,
+                    54 + contentShift,
+                    0xFFFFFFFF
+                );
+
+                int startRowY = 70 + contentShift;
+                int rowHeight = 21;
+                int startIndex = this.currentPage * ROWS_PER_PAGE;
+                int endIndex = Math.min(startIndex + ROWS_PER_PAGE, totalUnique);
+
+                for (int i = startIndex; i < endIndex; i++) {
+                    IpLookupManager.UniqueIpGroup group = uniqueGroups.get(i);
+                    int rowOffset = i - startIndex;
+                    int rowY = startRowY + (rowOffset * rowHeight);
+
+                    // Col 1: Index and IP
+                    String idxAndIp = "§f" + (i + 1) + ". §e" + group.ip();
+                    drawText(context, class_2561.method_43470(idxAndIp), centerX - 182, rowY + 4, 0xFFFFFF55);
+
+                    // Col 2: Count and percentage
+                    int pct = totalSessionsCount > 0 ? (int) Math.round(group.percentage()) : 0;
+                    String countInfo = "§b" + group.count() + " вх. §8(" + pct + "%)";
+                    drawText(context, class_2561.method_43470(countInfo), centerX - 82, rowY + 4, 0xFF55FFFF);
+                }
+
+                // Page indicator between arrows
+                if (maxPages > 1) {
+                    drawCenteredText(
+                        context,
+                        class_2561.method_43470("§7Стр. §e" + (this.currentPage + 1) + "§7/§e" + maxPages),
+                        centerX,
+                        183 + contentShift,
+                        0xFFFFFFFF
+                    );
+                } else if (totalUnique > 0) {
+                    drawCenteredText(
+                        context,
+                        class_2561.method_43470("§8Показаны все " + totalUnique + " уник. IP игрока"),
+                        centerX,
+                        183 + contentShift,
+                        0xFF888888
+                    );
+                }
             } else {
-                int totalEntries = entries.size();
+                // Mode: ALL_SESSIONS
+                List<PlayerIpEntry> displayEntries = !entries.isEmpty() ? entries : allSessionsList;
+                int totalEntries = displayEntries.size();
                 int maxPages = Math.max(1, (int) Math.ceil((double) totalEntries / ROWS_PER_PAGE));
                 int contentShift = profile != null && IpCopyConfig.getInstance().showQuickActions ? 18 : 0;
 
@@ -1223,8 +1540,8 @@ public class IpCopyScreen extends class_437 {
                 context.method_25294(centerX - 188, 66 + contentShift, centerX + 188, 174 + contentShift, 0x40000000);
 
                 // Subnet occurrence counts for smart badge detection
-                List<String> entryIps = new ArrayList<>(entries.size());
-                for (PlayerIpEntry e : entries) {
+                List<String> entryIps = new ArrayList<>(displayEntries.size());
+                for (PlayerIpEntry e : displayEntries) {
                     entryIps.add(e.ip());
                 }
                 Map<String, Integer> subnetCounts = SubnetMatcher.countSubnetOccurrences(entryIps);
@@ -1253,7 +1570,7 @@ public class IpCopyScreen extends class_437 {
                 int endIndex = Math.min(startIndex + ROWS_PER_PAGE, totalEntries);
 
                 for (int i = startIndex; i < endIndex; i++) {
-                    PlayerIpEntry entry = entries.get(i);
+                    PlayerIpEntry entry = displayEntries.get(i);
                     int rowOffset = i - startIndex;
                     int rowY = startRowY + (rowOffset * rowHeight);
 
@@ -1441,5 +1758,36 @@ public class IpCopyScreen extends class_437 {
 
     private static String getQuickActionsText(boolean state) {
         return "§7Быстрые действия: " + (state ? "§aВКЛ" : "§cВЫКЛ");
+    }
+
+    private static String getAutoFetchText(boolean state) {
+        return "§7Авто-сбор: " + (state ? "§aВКЛ" : "§cВЫКЛ");
+    }
+
+    private static String getPreferUniqueIpsText(boolean state) {
+        return "§7Вид по умолч.: " + (state ? "§6Уник. IP" : "§bСессии");
+    }
+
+    private static String formatCompactDateRange(String d1, String d2) {
+        if (d1 == null || d1.isEmpty()) return "";
+        if (d2 == null || d2.isEmpty() || d1.equals(d2)) return extractShortDate(d1);
+        String s1 = extractShortDate(d1);
+        String s2 = extractShortDate(d2);
+        if (s1.equals(s2)) return s1;
+        return s1 + "—" + s2;
+    }
+
+    private static String extractShortDate(String fullDate) {
+        if (fullDate == null) return "";
+        int dash1 = fullDate.indexOf('-');
+        if (dash1 >= 0) {
+            int dash2 = fullDate.indexOf('-', dash1 + 1);
+            if (dash2 > dash1) {
+                String day = fullDate.substring(0, dash1).trim();
+                String month = fullDate.substring(dash1 + 1, dash2).trim();
+                return day + "." + month;
+            }
+        }
+        return fullDate.length() > 5 ? fullDate.substring(0, 5) : fullDate;
     }
 }

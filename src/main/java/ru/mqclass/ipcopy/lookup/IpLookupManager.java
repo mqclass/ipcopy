@@ -5,17 +5,27 @@ import net.minecraft.class_2561;
 import net.minecraft.class_2583;
 import net.minecraft.class_310;
 import ru.mqclass.ipcopy.IpCopyProcessor;
+import ru.mqclass.ipcopy.config.IpCopyConfig;
+import ru.mqclass.ipcopy.feedback.IpFeedback;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,6 +47,17 @@ public final class IpLookupManager {
         String discord
     ) {}
 
+    public record UniqueIpGroup(
+        String ip,
+        String subnet24,
+        int count,
+        double percentage,
+        String firstDate,
+        String lastDate,
+        List<String> twinks,
+        boolean checked
+    ) {}
+
     public enum LookupStatus {
         IDLE,
         WAITING_INFO,
@@ -51,6 +72,9 @@ public final class IpLookupManager {
         public final String nick;
         public volatile PlayerProfile profile;
         public final List<PlayerIpEntry> entries = new CopyOnWriteArrayList<>();
+        public final List<PlayerIpEntry> allSessions = new CopyOnWriteArrayList<>();
+        public final Map<String, List<String>> ipTwinksMap = new ConcurrentHashMap<>();
+        public final Set<String> ipCheckedForTwinks = Collections.synchronizedSet(new LinkedHashSet<>());
         public final Set<String> allCollectedIps = Collections.synchronizedSet(new LinkedHashSet<>());
         public volatile LookupStatus status = LookupStatus.IDLE;
         public volatile String errorMessage = null;
@@ -144,6 +168,29 @@ public final class IpLookupManager {
     private static volatile long lastAutoFetchTime = 0L;
     private static volatile String lastAutoFetchCmd = "";
 
+    // Scheduler for rate-safe automated queries (1350ms delays)
+    private static final ScheduledExecutorService SCHEDULER = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "ipcopy-automation-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
+
+    // Auto-Crawler state
+    private static volatile boolean autoCrawling = false;
+    private static volatile String autoCrawlNick = null;
+    private static volatile int autoCrawlCurrentPage = 1;
+    private static volatile int autoCrawlTotalPages = 1;
+    private static final Set<Integer> autoCrawlVisitedPages = Collections.synchronizedSet(new HashSet<>());
+    private static volatile ScheduledFuture<?> autoCrawlWatchdog = null;
+
+    // Batch Dupe state
+    private static volatile boolean batchDupeRunning = false;
+    private static volatile String batchDupeNick = null;
+    private static volatile String batchDupeCurrentIp = null;
+    private static volatile int batchDupeTotal = 0;
+    private static volatile int batchDupeCurrentIndex = 0;
+    private static final Queue<String> batchDupeQueue = new ConcurrentLinkedQueue<>();
+
     static {
         // Pre-fill Odinoky profile from actual server format
         PlayerLookupData odinoky = new PlayerLookupData("Odinoky");
@@ -164,6 +211,9 @@ public final class IpLookupManager {
         for (PlayerIpEntry e : odinoky.entries) {
             odinoky.allCollectedIps.add(e.ip());
         }
+        odinoky.allSessions.addAll(odinoky.entries);
+        odinoky.ipCheckedForTwinks.add("185.230.240.209");
+        odinoky.ipTwinksMap.put("185.230.240.209", List.of("DiNoKy", "mqclass"));
         odinoky.serverCurrentPage = 28;
         odinoky.serverTotalPages = 29;
         odinoky.hasServerPagination = true;
@@ -182,6 +232,11 @@ public final class IpLookupManager {
         for (PlayerIpEntry e : dinoky.entries) {
             dinoky.allCollectedIps.add(e.ip());
         }
+        dinoky.allSessions.addAll(dinoky.entries);
+        dinoky.ipCheckedForTwinks.add("185.230.240.209");
+        dinoky.ipTwinksMap.put("185.230.240.209", List.of("Odinoky", "mqclass"));
+        dinoky.ipCheckedForTwinks.add("178.62.204.18");
+        dinoky.ipTwinksMap.put("178.62.204.18", Collections.emptyList());
         dinoky.status = LookupStatus.FOUND;
         CACHE.put("dinoky", dinoky);
     }
@@ -243,6 +298,321 @@ public final class IpLookupManager {
         return data != null ? new ArrayList<>(data.entries) : Collections.emptyList();
     }
 
+    public static List<PlayerIpEntry> getAllSessions(String nick) {
+        PlayerLookupData data = getData(nick);
+        if (data == null) return Collections.emptyList();
+        return !data.allSessions.isEmpty() ? new ArrayList<>(data.allSessions) : new ArrayList<>(data.entries);
+    }
+
+    public static List<UniqueIpGroup> getUniqueGroups(String nick) {
+        PlayerLookupData data = getData(nick);
+        if (data == null) return Collections.emptyList();
+
+        List<PlayerIpEntry> source = !data.allSessions.isEmpty() ? data.allSessions : data.entries;
+        if (source.isEmpty()) return Collections.emptyList();
+
+        int totalSessions = source.size();
+        Map<String, List<PlayerIpEntry>> byIp = new LinkedHashMap<>();
+        for (PlayerIpEntry entry : source) {
+            byIp.computeIfAbsent(entry.ip(), k -> new ArrayList<>()).add(entry);
+        }
+
+        List<UniqueIpGroup> groups = new ArrayList<>();
+        for (Map.Entry<String, List<PlayerIpEntry>> e : byIp.entrySet()) {
+            String ip = e.getKey();
+            List<PlayerIpEntry> list = e.getValue();
+            int count = list.size();
+            double pct = (count * 100.0) / totalSessions;
+            String subnet = ru.mqclass.ipcopy.lookup.SubnetMatcher.getSubnet24String(ip);
+
+            String firstDate = list.get(list.size() - 1).date(); // oldest
+            String lastDate = list.get(0).date(); // newest
+
+            List<String> twinks = data.ipTwinksMap.getOrDefault(ip, Collections.emptyList());
+            boolean checked = data.ipCheckedForTwinks.contains(ip);
+
+            groups.add(new UniqueIpGroup(ip, subnet, count, pct, firstDate, lastDate, twinks, checked));
+        }
+
+        groups.sort((a, b) -> Integer.compare(b.count(), a.count()));
+        return groups;
+    }
+
+    // ================= Auto-Crawler Engine =================
+
+    public static boolean isAutoCrawling() {
+        return autoCrawling;
+    }
+
+    public static String getAutoCrawlNick() {
+        return autoCrawlNick;
+    }
+
+    public static int getAutoCrawlCurrentPage() {
+        return autoCrawlCurrentPage;
+    }
+
+    public static int getAutoCrawlTotalPages() {
+        return autoCrawlTotalPages;
+    }
+
+    public static synchronized void startAutoCrawl(String nick) {
+        if (nick == null || nick.trim().isEmpty()) return;
+        PlayerLookupData data = getData(nick);
+        if (data == null || data.serverTotalPages <= 1) return;
+
+        autoCrawling = true;
+        autoCrawlNick = nick.trim();
+        autoCrawlCurrentPage = data.serverCurrentPage;
+        autoCrawlTotalPages = data.serverTotalPages;
+        autoCrawlVisitedPages.clear();
+        autoCrawlVisitedPages.add(data.serverCurrentPage);
+
+        notifyListener(nick);
+        scheduleNextCrawlStep(100);
+    }
+
+    public static synchronized void stopAutoCrawl(boolean completed) {
+        if (!autoCrawling) return;
+        autoCrawling = false;
+        String nick = autoCrawlNick;
+        autoCrawlNick = null;
+
+        if (completed && nick != null) {
+            PlayerLookupData data = getData(nick);
+            int total = data != null ? (!data.allSessions.isEmpty() ? data.allSessions.size() : data.entries.size()) : 0;
+            int unique = data != null ? data.allCollectedIps.size() : 0;
+            IpFeedback.onAutoCrawlFinished(nick, total, unique);
+        }
+        notifyListener(nick);
+    }
+
+    private static void scheduleNextCrawlStep(long delayMs) {
+        if (!autoCrawling || autoCrawlNick == null) return;
+
+        SCHEDULER.schedule(() -> {
+            if (!autoCrawling || autoCrawlNick == null) return;
+            PlayerLookupData data = getData(autoCrawlNick);
+            if (data == null) {
+                stopAutoCrawl(false);
+                return;
+            }
+
+            int nextTarget = -1;
+            for (int p = 1; p <= autoCrawlTotalPages; p++) {
+                if (!autoCrawlVisitedPages.contains(p)) {
+                    nextTarget = p;
+                    break;
+                }
+            }
+
+            if (nextTarget == -1) {
+                stopAutoCrawl(true);
+                return;
+            }
+
+            autoCrawlCurrentPage = nextTarget;
+            notifyListener(autoCrawlNick);
+
+            executeServerCommand("auth find login by player " + autoCrawlNick + " " + nextTarget);
+        }, delayMs, TimeUnit.MILLISECONDS);
+    }
+
+    // ================= Batch Dupe Engine =================
+
+    public static boolean isBatchDupeRunning() {
+        return batchDupeRunning;
+    }
+
+    public static String getBatchDupeNick() {
+        return batchDupeNick;
+    }
+
+    public static String getBatchDupeProgress() {
+        return batchDupeCurrentIndex + "/" + batchDupeTotal;
+    }
+
+    public static synchronized void startBatchDupe(String nick) {
+        if (nick == null || nick.trim().isEmpty()) return;
+        PlayerLookupData data = getData(nick);
+        if (data == null) return;
+
+        List<UniqueIpGroup> groups = getUniqueGroups(nick);
+        if (groups.isEmpty()) return;
+
+        batchDupeQueue.clear();
+        for (UniqueIpGroup g : groups) {
+            batchDupeQueue.add(g.ip());
+        }
+
+        batchDupeRunning = true;
+        batchDupeNick = nick.trim();
+        batchDupeTotal = batchDupeQueue.size();
+        batchDupeCurrentIndex = 0;
+
+        notifyListener(nick);
+        runNextBatchDupeStep(50);
+    }
+
+    public static synchronized void stopBatchDupe(boolean completed) {
+        if (!batchDupeRunning) return;
+        batchDupeRunning = false;
+        String nick = batchDupeNick;
+        batchDupeNick = null;
+        batchDupeCurrentIp = null;
+        batchDupeQueue.clear();
+
+        if (completed && nick != null) {
+            PlayerLookupData data = getData(nick);
+            int twinksCount = 0;
+            if (data != null) {
+                for (List<String> list : data.ipTwinksMap.values()) {
+                    twinksCount += list.size();
+                }
+            }
+            IpFeedback.onBatchDupeFinished(batchDupeTotal, twinksCount);
+        }
+        notifyListener(nick);
+    }
+
+    private static void runNextBatchDupeStep(long delayMs) {
+        if (!batchDupeRunning) return;
+
+        SCHEDULER.schedule(() -> {
+            if (!batchDupeRunning) return;
+            String nextIp = batchDupeQueue.poll();
+            if (nextIp == null) {
+                stopBatchDupe(true);
+                return;
+            }
+
+            batchDupeCurrentIp = nextIp;
+            batchDupeCurrentIndex++;
+            notifyListener(batchDupeNick);
+
+            String rawCmd = IpCopyConfig.getInstance().secondActionCommand;
+            if (rawCmd == null) rawCmd = "/dupeip %ip%";
+            String cmd = rawCmd.replace("%ip%", nextIp);
+            if (cmd.startsWith("/")) cmd = cmd.substring(1);
+            executeServerCommand(cmd);
+
+            runNextBatchDupeStep(1400);
+        }, delayMs, TimeUnit.MILLISECONDS);
+    }
+
+    public static void checkDupeIpMessage(String cleanText) {
+        if (cleanText == null || cleanText.isEmpty()) return;
+        String lower = cleanText.toLowerCase(Locale.ROOT);
+
+        boolean isDupeRelated = lower.contains("dupe") || lower.contains("твинк")
+            || lower.contains("аккаунт") || lower.contains("совпаден")
+            || (lower.contains("игрок") && (lower.contains("найдено") || lower.contains("ip") || lower.contains("базе")));
+
+        if (!isDupeRelated) return;
+
+        List<String> ips = IpCopyProcessor.extractIps(cleanText);
+        String targetIp = !ips.isEmpty() ? ips.get(0) : batchDupeCurrentIp;
+        if (targetIp == null) return;
+
+        String nick = (batchDupeNick != null) ? batchDupeNick : activeHistoryNick;
+        if (nick == null) nick = activeQueryNick;
+        if (nick == null) return;
+
+        PlayerLookupData data = getData(nick);
+        if (data == null) return;
+
+        data.ipCheckedForTwinks.add(targetIp);
+
+        boolean isClean = lower.contains("не найден") || lower.contains("не обнаружен")
+            || lower.contains("нет твинков") || lower.contains("0 твинк")
+            || lower.contains("только один") || lower.contains("только этот")
+            || lower.contains("совпадений не");
+
+        List<String> twinks = new ArrayList<>();
+        if (!isClean) {
+            Pattern p = Pattern.compile("\\b([A-Za-z0-9_]{3,16})\\b");
+            Matcher m = p.matcher(cleanText);
+            Set<String> blacklistedWords = Set.of(
+                "dupeip", "dupe", "spacetimes", "auth", "player", "login", "session",
+                "info", "true", "false", "null", "uuid", "telegram", "discord", "admin", "moder", "helper"
+            );
+
+            while (m.find()) {
+                String word = m.group(1);
+                String wordLower = word.toLowerCase(Locale.ROOT);
+                if (blacklistedWords.contains(wordLower)) continue;
+                if (word.equalsIgnoreCase(nick)) continue;
+                if (word.matches("^\\d+$")) continue;
+                if (!twinks.contains(word)) {
+                    twinks.add(word);
+                }
+            }
+        }
+
+        data.ipTwinksMap.put(targetIp, twinks);
+        data.lastUpdated = System.currentTimeMillis();
+        notifyListener(nick);
+    }
+
+    public static String generateExpressDossier(String nick) {
+        PlayerLookupData data = getData(nick);
+        if (data == null) return "Информация об игроке " + nick + " не найдена.";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("═════════════ ДОСЬЕ ИГРОКА ═════════════\n");
+        sb.append("Никнейм: ").append(data.nick).append("\n");
+
+        if (data.profile != null) {
+            sb.append("UUID: ").append(data.profile.uuid()).append("\n");
+            sb.append("Премиум: ").append(data.profile.premium()).append("\n");
+            sb.append("Социальные сети:\n");
+            sb.append("  • VK: ").append(data.profile.vk()).append("\n");
+            sb.append("  • Telegram: ").append(data.profile.telegram()).append("\n");
+            sb.append("  • Discord: ").append(data.profile.discord()).append("\n");
+        }
+
+        List<PlayerIpEntry> source = !data.allSessions.isEmpty() ? data.allSessions : data.entries;
+        List<UniqueIpGroup> groups = getUniqueGroups(nick);
+
+        sb.append("────────────────────────────────────────\n");
+        sb.append("Всего сессий: ").append(source.size());
+        if (!source.isEmpty()) {
+            String oldest = source.get(source.size() - 1).date();
+            String newest = source.get(0).date();
+            sb.append(" (с ").append(oldest).append(" по ").append(newest).append(")");
+        }
+        sb.append("\n");
+        sb.append("Уникальных IP-адресов: ").append(groups.size()).append("\n");
+        sb.append("────────────────────────────────────────\n");
+        sb.append("ДЕТАЛИЗАЦИЯ ПО IP:\n");
+
+        if (groups.isEmpty()) {
+            sb.append("  (Записи входов отсутствуют)\n");
+        } else {
+            for (int i = 0; i < groups.size(); i++) {
+                UniqueIpGroup g = groups.get(i);
+                sb.append(String.format(Locale.ROOT, "%d. %s [%s] — %d вх. (%.1f%%)\n",
+                    (i + 1), g.ip(), g.subnet24(), g.count(), g.percentage()));
+                sb.append("   • Период: ").append(g.firstDate()).append(" — ").append(g.lastDate()).append("\n");
+                if (g.checked()) {
+                    if (g.twinks().isEmpty()) {
+                        sb.append("   • Твинки: не обнаружены (чист)\n");
+                    } else {
+                        sb.append("   • Твинки (").append(g.twinks().size()).append("): ")
+                          .append(String.join(", ", g.twinks())).append("\n");
+                    }
+                } else {
+                    sb.append("   • Твинки: не проверен\n");
+                }
+            }
+        }
+
+        sb.append("════════════════════════════════════════\n");
+        sb.append("Сформировано через IP Copy by mqclass\n");
+
+        return sb.toString();
+    }
+
     public static LookupStatus getStatus(String nick) {
         PlayerLookupData data = getData(nick);
         return data != null ? data.status : LookupStatus.IDLE;
@@ -293,6 +663,12 @@ public final class IpLookupManager {
             return true;
         }
 
+        // 7. DupeIP responses
+        if ((clean.contains("DupeIP") || clean.contains("твинк") || clean.contains("совпаден") || clean.contains("Игроки с таким IP")) &&
+            (IpCopyProcessor.containsIp(clean) || batchDupeRunning)) {
+            return true;
+        }
+
         return false;
     }
 
@@ -306,6 +682,9 @@ public final class IpLookupManager {
         }
 
         String cleanText = stripColorCodes(rawText);
+
+        // Check for DupeIP responses in chat
+        checkDupeIpMessage(cleanText);
 
         // Case 1: "Указанный игрок, ник, не зарегистрирован"
         Matcher notRegMatcher = NOT_REGISTERED_PATTERN.matcher(cleanText);
@@ -414,6 +793,14 @@ public final class IpLookupManager {
                     } catch (Exception ignored) {}
                 }
 
+                // Auto-crawler tracking
+                if (autoCrawling && autoCrawlNick != null && autoCrawlNick.equalsIgnoreCase(nick)) {
+                    autoCrawlVisitedPages.add(data.serverCurrentPage);
+                    autoCrawlTotalPages = data.serverTotalPages;
+                } else if (IpCopyConfig.getInstance().autoFetchAllPages && data.serverTotalPages > 1 && !autoCrawling) {
+                    startAutoCrawl(nick);
+                }
+
                 notifyListener(nick);
             }
         }
@@ -448,6 +835,9 @@ public final class IpLookupManager {
                     String type = line.toLowerCase(Locale.ROOT).contains("session") ? "session" : "login";
                     PlayerIpEntry newEntry = new PlayerIpEntry(date, ip, type);
                     data.allCollectedIps.add(ip);
+                    if (!data.allSessions.contains(newEntry)) {
+                        data.allSessions.add(newEntry);
+                    }
                     if (!data.entries.contains(newEntry)) {
                         data.entries.add(newEntry);
                         addedAny = true;
@@ -473,6 +863,12 @@ public final class IpLookupManager {
                 if (data != null) {
                     extractNavigationCommands(message, data);
                     data.hasServerPagination = true;
+
+                    if (autoCrawling && autoCrawlNick != null && autoCrawlNick.equalsIgnoreCase(activeHistoryNick)) {
+                        autoCrawlVisitedPages.add(data.serverCurrentPage);
+                        scheduleNextCrawlStep(1350);
+                    }
+
                     notifyListener(activeHistoryNick);
                 }
             }
@@ -624,6 +1020,8 @@ public final class IpLookupManager {
     }
 
     public static void clearCache() {
+        stopAutoCrawl(false);
+        stopBatchDupe(false);
         CACHE.clear();
         updateListener = null;
         activeQueryNick = null;
@@ -648,6 +1046,9 @@ public final class IpLookupManager {
         for (PlayerIpEntry e : odinoky.entries) {
             odinoky.allCollectedIps.add(e.ip());
         }
+        odinoky.allSessions.addAll(odinoky.entries);
+        odinoky.ipCheckedForTwinks.add("185.230.240.209");
+        odinoky.ipTwinksMap.put("185.230.240.209", List.of("DiNoKy", "mqclass"));
         odinoky.serverCurrentPage = 28;
         odinoky.serverTotalPages = 29;
         odinoky.hasServerPagination = true;
@@ -665,6 +1066,11 @@ public final class IpLookupManager {
         for (PlayerIpEntry e : dinoky.entries) {
             dinoky.allCollectedIps.add(e.ip());
         }
+        dinoky.allSessions.addAll(dinoky.entries);
+        dinoky.ipCheckedForTwinks.add("185.230.240.209");
+        dinoky.ipTwinksMap.put("185.230.240.209", List.of("Odinoky", "mqclass"));
+        dinoky.ipCheckedForTwinks.add("178.62.204.18");
+        dinoky.ipTwinksMap.put("178.62.204.18", Collections.emptyList());
         dinoky.status = LookupStatus.FOUND;
         CACHE.put("dinoky", dinoky);
     }

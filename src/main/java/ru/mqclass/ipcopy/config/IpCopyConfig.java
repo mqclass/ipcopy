@@ -34,6 +34,8 @@ public final class IpCopyConfig {
     public volatile String secondActionCommand = "/dupeip %ip%";
     public volatile boolean silentChatMode = false;
     public volatile boolean showQuickActions = true;
+    public volatile boolean autoFetchAllPages = false;
+    public volatile boolean preferUniqueIpsView = true;
     public List<QuickAction> quickActions = defaultQuickActions();
 
     public static final class QuickAction {

@@ -153,6 +153,137 @@ public final class IpFeedback {
         });
     }
 
+    public static void playSuccessSound() {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(class_3417.field_14627, 1.2F)
+                    );
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+    }
+
+    public static void onDossierCopied(String nick) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(class_3417.field_14627, 1.2F)
+                    );
+                } catch (Throwable ignored) {
+                }
+            }
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                client.field_1724.method_7353(
+                    class_2561.method_43470("§a✔ Досье игрока §e" + nick + " §aскопировано в буфер!"),
+                    true
+                );
+            }
+            if (config.toastFeedback) {
+                net.minecraft.class_374 toastManager = client.method_1566();
+                if (toastManager != null) {
+                    toastManager.method_1999(new ru.mqclass.ipcopy.toast.IpToast(
+                        class_2561.method_43470("§6[IPCopy] §a✔ Досье готово!"),
+                        class_2561.method_43470("§eИгрок: §f" + nick)
+                    ));
+                }
+            }
+        });
+    }
+
+    public static void onAutoCrawlFinished(String nick, int totalSessions, int uniqueIps) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(class_3417.field_14627, 1.3F)
+                    );
+                } catch (Throwable ignored) {
+                }
+            }
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                client.field_1724.method_7353(
+                    class_2561.method_43470("§a✔ Сбор завершён: §f" + totalSessions + " §aсессий (§f" + uniqueIps + " §aуник. IP) для §e" + nick),
+                    true
+                );
+            }
+            if (config.toastFeedback) {
+                net.minecraft.class_374 toastManager = client.method_1566();
+                if (toastManager != null) {
+                    toastManager.method_1999(new ru.mqclass.ipcopy.toast.IpToast(
+                        class_2561.method_43470("§6[IPCopy] §a✔ Сессии собраны!"),
+                        class_2561.method_43470("§f" + totalSessions + " §7сессий | §e" + uniqueIps + " §7уник. IP")
+                    ));
+                }
+            }
+        });
+    }
+
+    public static void onBatchDupeFinished(int checkedCount, int twinksFound) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(class_3417.field_14627, 1.3F)
+                    );
+                } catch (Throwable ignored) {
+                }
+            }
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                client.field_1724.method_7353(
+                    class_2561.method_43470("§a✔ Проверка DupeIP завершена: §f" + checkedCount + " §aIP (твинков: §c" + twinksFound + "§a)"),
+                    true
+                );
+            }
+            if (config.toastFeedback) {
+                net.minecraft.class_374 toastManager = client.method_1566();
+                if (toastManager != null) {
+                    toastManager.method_1999(new ru.mqclass.ipcopy.toast.IpToast(
+                        class_2561.method_43470("§6[IPCopy] §a✔ DupeIP завершён!"),
+                        class_2561.method_43470("§7Проверено §f" + checkedCount + " §7IP | Твинков: §c" + twinksFound)
+                    ));
+                }
+            }
+        });
+    }
+
+    public static void onTwinksCopied(String ip, int count) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_47978(class_3417.field_15239, 1.0F)
+                    );
+                } catch (Throwable ignored) {
+                }
+            }
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                client.field_1724.method_7353(
+                    class_2561.method_43470("§a✔ Скопировано §f" + count + " §aтвинков для IP: §e" + ip),
+                    true
+                );
+            }
+        });
+    }
+
     public static void onReportExported(String message, boolean success) {
         class_310 client = class_310.method_1551();
         if (client == null) return;

@@ -49,6 +49,16 @@ public final class IpCopyProcessor {
     }
 
     /**
+     * Checks if the input string contains at least one valid IPv4 address.
+     */
+    public static boolean containsIp(String text) {
+        if (text == null || text.length() < 7) {
+            return false;
+        }
+        return IP_PATTERN.matcher(text).find();
+    }
+
+    /**
      * Extracts all valid unique IPv4 addresses from the input string.
      */
     public static List<String> extractIps(String text) {
