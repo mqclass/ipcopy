@@ -49,10 +49,18 @@ public final class IpCopyClient implements ClientModInitializer {
         // Register native keybindings (default key 'I' for instant GUI access)
         IpKeyBindings.register();
 
-        // Wipe session history when leaving a world or disconnecting from server
+        // Initialize Anti-AFK keepalive manager
+        ru.mqclass.ipcopy.afk.AntiAfkManager.getInstance().init();
+
+        // Register real-time HUD scan overlay
+        net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register(ru.mqclass.ipcopy.hud.ScanHudOverlay::render);
+
+        // Wipe session history and queue when leaving a world or disconnecting from server
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             IpHistoryManager.clear();
             IpLookupManager.clearCache();
+            ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().cancelScan();
+            ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().clearCache();
         });
 
         // Register game message modifier (handles anticheat alerts, server logs, command outputs)
@@ -64,7 +72,10 @@ public final class IpCopyClient implements ClientModInitializer {
         });
 
         // Dot commands are handled locally and never sent as chat messages to the server.
-        ClientSendMessageEvents.ALLOW_CHAT.register(IpCopyClient::handleDotCommand);
+        ClientSendMessageEvents.ALLOW_CHAT.register(raw -> {
+            ru.mqclass.ipcopy.afk.AntiAfkManager.getInstance().recordPlayerAction();
+            return handleDotCommand(raw);
+        });
 
         // Register client commands under /ipcopy and /apf
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
@@ -85,6 +96,36 @@ public final class IpCopyClient implements ClientModInitializer {
                             return 1;
                         })
                     )
+                )
+                .then(ClientCommandManager.literal("scan")
+                    .then(ClientCommandManager.argument("target", StringArgumentType.greedyString())
+                        .executes(context -> {
+                            String arg = StringArgumentType.getString(context, "target");
+                            startScanCommand(arg);
+                            return 1;
+                        })
+                    )
+                )
+                .then(ClientCommandManager.literal("pause")
+                    .executes(context -> {
+                        ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().pauseScan();
+                        context.getSource().sendFeedback(class_2561.method_43470("§6[IPCopy] §e⏸ Сканирование поставлено на паузу."));
+                        return 1;
+                    })
+                )
+                .then(ClientCommandManager.literal("resume")
+                    .executes(context -> {
+                        ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().resumeScan();
+                        context.getSource().sendFeedback(class_2561.method_43470("§6[IPCopy] §a▶ Сканирование возобновлено."));
+                        return 1;
+                    })
+                )
+                .then(ClientCommandManager.literal("cancel")
+                    .executes(context -> {
+                        ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().cancelScan();
+                        context.getSource().sendFeedback(class_2561.method_43470("§6[IPCopy] §c✖ Очередь сканирования сброшена."));
+                        return 1;
+                    })
                 )
                 .then(ClientCommandManager.literal("test")
                     .executes(context -> {
@@ -163,6 +204,26 @@ public final class IpCopyClient implements ClientModInitializer {
             } else if (parts.length >= 2 && parts[1].equalsIgnoreCase("gui")) {
                 String nick = parts.length >= 3 ? parts[2] : null;
                 openConfigGui(nick);
+            } else if (parts.length >= 2 && parts[1].equalsIgnoreCase("scan")) {
+                if (parts.length >= 3) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 2; i < parts.length; i++) {
+                        if (i > 2) sb.append(" ");
+                        sb.append(parts[i]);
+                    }
+                    startScanCommand(sb.toString());
+                } else {
+                    showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy scan <ip1,ip2,...|ник> [ник]"));
+                }
+            } else if (parts.length == 2 && parts[1].equalsIgnoreCase("pause")) {
+                ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().pauseScan();
+                showLocalMessage(class_2561.method_43470("§6[IPCopy] §e⏸ Сканирование поставлено на паузу."));
+            } else if (parts.length == 2 && parts[1].equalsIgnoreCase("resume")) {
+                ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().resumeScan();
+                showLocalMessage(class_2561.method_43470("§6[IPCopy] §a▶ Сканирование возобновлено."));
+            } else if (parts.length == 2 && parts[1].equalsIgnoreCase("cancel")) {
+                ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().cancelScan();
+                showLocalMessage(class_2561.method_43470("§6[IPCopy] §c✖ Очередь сканирования сброшена."));
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("test")) {
                 sendTestMessage();
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("toggle")) {
@@ -176,7 +237,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 IpCopyConfig.load();
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §aКонфигурация перезагружена с диска."));
             } else {
-                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|test|toggle|history|clear|reload]"));
+                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|scan <ip1,ip2,...|ник>|pause|resume|cancel|test|toggle|history|clear|reload]"));
             }
             return false;
         }
@@ -192,6 +253,66 @@ public final class IpCopyClient implements ClientModInitializer {
         }
 
         return true;
+    }
+
+    public static void startScanCommand(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy scan <ip1,ip2,...|ник> [ник]"));
+            return;
+        }
+
+        String[] parts = raw.trim().split("\\s+");
+        String ipsOrNick = parts[0];
+        String targetNick = parts.length > 1 ? parts[1] : null;
+
+        java.util.List<String> extracted = new java.util.ArrayList<>();
+        if (ipsOrNick.contains(",")) {
+            for (String p : ipsOrNick.split(",")) {
+                String ip = p.trim();
+                if (IpCopyProcessor.isValidIp(ip) && !extracted.contains(ip)) {
+                    extracted.add(ip);
+                }
+            }
+        } else if (IpCopyProcessor.isValidIp(ipsOrNick)) {
+            extracted.add(ipsOrNick);
+        }
+
+        if (extracted.isEmpty()) {
+            String nick = ipsOrNick;
+            IpLookupManager.PlayerLookupData data = IpLookupManager.getData(nick);
+            if (data != null && !data.entries.isEmpty()) {
+                extracted = data.getUniqueIps();
+                targetNick = nick;
+            } else {
+                showLocalMessage(class_2561.method_43470("§6[IPCopy] §eЗагружаю список IP для §f" + nick + "§e..."));
+                IpLookupManager.queryPlayer(nick);
+                IpLookupManager.setUpdateListener(updatedNick -> {
+                    if (updatedNick != null && updatedNick.equalsIgnoreCase(nick)) {
+                        IpLookupManager.PlayerLookupData d = IpLookupManager.getData(nick);
+                        if (d != null && (!d.entries.isEmpty() || !d.allSessions.isEmpty())) {
+                            IpLookupManager.setUpdateListener(null);
+                            List<String> unique = d.getUniqueIps();
+                            if (unique.isEmpty()) {
+                                showLocalMessage(class_2561.method_43470("§6[IPCopy] §cУ игрока §f" + nick + " §cне найдено IP-адресов."));
+                            } else {
+                                ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().startScan(
+                                    nick, unique, IpCopyConfig.getInstance().secondActionCommand
+                                );
+                            }
+                        }
+                    }
+                });
+                return;
+            }
+        }
+
+        if (targetNick == null) {
+            targetNick = "Player";
+        }
+
+        ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().startScan(
+            targetNick, extracted, IpCopyConfig.getInstance().secondActionCommand
+        );
     }
 
     private static void executeAuthPlayer(String nick) {

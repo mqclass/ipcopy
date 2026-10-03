@@ -101,6 +101,10 @@ public final class IpLookupManager {
             this.cmdLast = null;
             this.hasServerPagination = false;
         }
+
+        public List<String> getUniqueIps() {
+            return IpLookupManager.getUniqueIps(this.nick);
+        }
     }
 
     private static final int MAX_CACHE_PLAYERS = 100;
@@ -336,6 +340,15 @@ public final class IpLookupManager {
 
         groups.sort((a, b) -> Integer.compare(b.count(), a.count()));
         return groups;
+    }
+
+    public static List<String> getUniqueIps(String nick) {
+        List<UniqueIpGroup> groups = getUniqueGroups(nick);
+        List<String> list = new ArrayList<>(groups.size());
+        for (UniqueIpGroup g : groups) {
+            list.add(g.ip());
+        }
+        return list;
     }
 
     // ================= Auto-Crawler Engine =================

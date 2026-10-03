@@ -36,6 +36,10 @@ public final class IpCopyConfig {
     public volatile boolean showQuickActions = true;
     public volatile boolean autoFetchAllPages = false;
     public volatile boolean preferUniqueIpsView = true;
+    public volatile int scanDelayMs = 1250;
+    public volatile boolean showHudOverlay = true;
+    public volatile boolean antiAfk = true;
+    public volatile boolean autoScanButtonInChat = true;
     public List<QuickAction> quickActions = defaultQuickActions();
 
     public static final class QuickAction {

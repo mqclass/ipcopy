@@ -207,6 +207,19 @@ public final class IpCopyProcessor {
             }, class_2583.field_24360);
 
             appendLineButtons(rebuilt, ipsByLine, lineIndex[0]);
+
+            // If multi-line message contained multiple IPs across lines, append master [⚡ ПРОВЕРИТЬ ВСЕ] at the end
+            List<String> allUnique = new ArrayList<>();
+            for (List<String> list : ipsByLine) {
+                for (String ip : list) {
+                    if (!allUnique.contains(ip)) allUnique.add(ip);
+                }
+            }
+            if (allUnique.size() > 1 && IpCopyConfig.getInstance().autoScanButtonInChat) {
+                rebuilt.method_27693("\n ");
+                rebuilt.method_10852(createScanAllButton(allUnique));
+            }
+
             return rebuilt;
         } catch (Throwable exception) {
             if (ERROR_REPORTED.compareAndSet(false, true)) {
@@ -235,6 +248,34 @@ public final class IpCopyProcessor {
                 target.method_10852(createSecondActionButton(ip));
             }
         }
+        if (ips.size() > 1 && config.autoScanButtonInChat) {
+            target.method_27693(" ");
+            target.method_10852(createScanAllButton(ips));
+        }
+    }
+
+    /**
+     * Creates interactive [⚡ ПРОВЕРИТЬ ВСЕ (X уник.)] button for 1-click batch queue scanning.
+     */
+    public static class_2561 createScanAllButton(List<String> ips) {
+        if (ips == null || ips.isEmpty()) return class_2561.method_43473();
+        Set<String> unique = new LinkedHashSet<>(ips);
+        String ipsJoined = String.join(",", unique);
+        String title = "§d[⚡ ПРОВЕРИТЬ ВСЕ (" + unique.size() + " уник.)]";
+
+        class_5250 button = class_2561.method_43470(title);
+        class_5250 tooltipText = class_2561.method_43470(
+            "§d[IPCopy AutoScan] §eНажмите для авто-сканирования всех " + unique.size() + " IP через очередь!\n" +
+            "§7Кулдаун: §b1250ms §8(защита от кика)\n" +
+            "§7Спам ответов будет скрыт, а в конце будет красивый звуковой отчёт!"
+        );
+
+        class_2583 style = class_2583.field_24360
+            .method_10977(class_124.field_1077) // Formatting.LIGHT_PURPLE
+            .method_10958(new class_2558.class_10609(".ipcopy scan " + ipsJoined)) // ClickEvent.RunCommand
+            .method_10949(new class_2568.class_10613(tooltipText)); // HoverEvent.ShowText
+
+        return button.method_10862(style);
     }
 
     /**

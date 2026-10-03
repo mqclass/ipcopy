@@ -44,7 +44,16 @@ public class ChatHudMixin {
         // 1. Always inspect incoming messages for dashboard updates
         IpLookupManager.inspectMessage(message, rawText);
 
-        // 2. If silent mode is enabled and message is server auth info/history/pagination, suppress from chat HUD
+        // 2. Intercept and parse scan responses during background batch scanning
+        if (ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().isScanning()) {
+            boolean handled = ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().handleServerChatLine(rawText);
+            if (handled) {
+                ci.cancel();
+                return;
+            }
+        }
+
+        // 3. If silent mode is enabled and message is server auth info/history/pagination, suppress from chat HUD
         if (IpCopyConfig.getInstance().silentChatMode && IpLookupManager.isAuthMessage(rawText)) {
             ci.cancel();
         }
