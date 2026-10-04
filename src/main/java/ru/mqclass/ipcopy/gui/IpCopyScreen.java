@@ -121,7 +121,18 @@ public class IpCopyScreen extends class_437 {
 
     public static String sanitizeNick(String raw) {
         if (raw == null) return "";
-        String s = IpLookupManager.stripColorCodes(raw).trim().replaceAll("[^A-Za-z0-9_]", "");
+        String s = IpLookupManager.stripColorCodes(raw).trim();
+        // If copied with head/tag prefix like [head]Nick or [VIP] Nick
+        int lastBracket = s.lastIndexOf(']');
+        if (lastBracket >= 0 && lastBracket < s.length() - 1) {
+            s = s.substring(lastBracket + 1).trim();
+        }
+        // If copied with label like "Ник: Player"
+        int colon = s.lastIndexOf(':');
+        if (colon >= 0 && colon < s.length() - 1) {
+            s = s.substring(colon + 1).trim();
+        }
+        s = s.replaceAll("[^A-Za-z0-9_]", "");
         return s.length() > 16 ? s.substring(0, 16) : s;
     }
 
@@ -1080,20 +1091,31 @@ public class IpCopyScreen extends class_437 {
 
     private void pasteFromClipboard() {
         class_310 client = class_310.method_1551();
+        String raw = null;
         if (client != null && client.field_1774 != null) {
-            String raw = client.field_1774.method_1460();
-            if (raw != null && !raw.isEmpty()) {
-                String clean = sanitizeNick(raw);
-                if (!clean.isEmpty()) {
-                    this.currentNick = clean;
-                    if (this.nickField != null) {
-                        this.nickField.method_1852(clean);
-                        this.nickField.method_1884(clean.length());
-                        this.nickField.method_25365(true);
-                        this.method_25395(this.nickField);
-                    }
-                    this.rebuildWidgets();
+            try {
+                raw = client.field_1774.method_1460();
+            } catch (Throwable ignored) {}
+        }
+        if (raw == null || raw.isEmpty()) {
+            try {
+                java.awt.datatransfer.Clipboard cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+                if (cb.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+                    raw = (String) cb.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
                 }
+            } catch (Throwable ignored) {}
+        }
+        if (raw != null && !raw.isEmpty()) {
+            String clean = sanitizeNick(raw);
+            if (!clean.isEmpty()) {
+                this.currentNick = clean;
+                if (this.nickField != null) {
+                    this.nickField.method_1852(clean);
+                    this.nickField.method_1884(clean.length());
+                    this.nickField.method_25365(true);
+                    this.method_25395(this.nickField);
+                }
+                this.rebuildWidgets();
             }
         }
     }
