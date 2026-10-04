@@ -38,12 +38,14 @@ dependencies {
         include("**/modmenu*.jar")
     })
 
-    // Fabric Loader & Sponge Mixin & Brigadier & Gson
+    // Fabric Loader & Sponge Mixin & Brigadier & Gson & LWJGL & JOML
     compileOnly(fileTree("$freesmDir/libraries") {
         include("**/fabric-loader*.jar")
         include("**/sponge-mixin*.jar")
         include("**/brigadier*.jar")
         include("**/gson*.jar")
+        include("**/lwjgl*.jar")
+        include("**/joml*.jar")
     })
 }
 

@@ -13,6 +13,7 @@
   "environment": "client",
   "entrypoints": {
     "client": [
+      "ru.mqclass.ipcopy.IpCopyMod",
       "ru.mqclass.ipcopy.IpCopyClient"
     ],
     "modmenu": [

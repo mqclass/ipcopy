@@ -281,7 +281,7 @@ public final class IpLookupManager {
 
         class_310 client = class_310.method_1551();
         if (client != null && client.method_1562() != null) {
-            client.method_1562().method_45730("auth player " + target + " info");
+            ru.mqclass.ipcopy.network.CommandDispatcher.dispatch("auth player " + target + " info");
             return true;
         }
         return false;
@@ -671,7 +671,7 @@ public final class IpLookupManager {
             return true;
         }
 
-        // 6. Empty history messages or prompt
+        // 6. Empty history messages or server notification
         if (clean.contains("(0/0)") || clean.contains("нет сохраненных сессий") || clean.contains("нет записей входов") || clean.contains("Посмотреть историю входов")) {
             return true;
         }
@@ -768,16 +768,7 @@ public final class IpLookupManager {
 
                     // Delay follow-up command by 1300ms so the server spam filter never outputs "Подождите 1 сек"
                     java.util.concurrent.CompletableFuture.delayedExecutor(1300, java.util.concurrent.TimeUnit.MILLISECONDS)
-                        .execute(() -> {
-                            class_310 client = class_310.method_1551();
-                            if (client != null) {
-                                client.execute(() -> {
-                                    if (client.method_1562() != null) {
-                                        client.method_1562().method_45730(finalCmd);
-                                    }
-                                });
-                            }
-                        });
+                        .execute(() -> ru.mqclass.ipcopy.network.CommandDispatcher.dispatch(finalCmd));
                 }
 
                 notifyListener(nick);
@@ -939,15 +930,7 @@ public final class IpLookupManager {
 
     public static void executeServerCommand(String command) {
         if (command == null || command.isEmpty()) return;
-        class_310 client = class_310.method_1551();
-        if (client != null) {
-            client.execute(() -> {
-                if (client.method_1562() != null) {
-                    String clean = command.startsWith("/") ? command.substring(1) : command;
-                    client.method_1562().method_45730(clean.trim());
-                }
-            });
-        }
+        ru.mqclass.ipcopy.network.CommandDispatcher.dispatch(command);
     }
 
     public static String findClickCommand(class_2561 text, String targetSnippet) {

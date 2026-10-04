@@ -122,9 +122,16 @@ public final class IpCopyClient implements ClientModInitializer {
                 )
                 .then(ClientCommandManager.literal("cancel")
                     .executes(context -> {
+                        ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().cancel();
                         ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().cancelScan();
-                        context.getSource().sendFeedback(class_2561.method_43470("§6[IPCopy] §c✖ Очередь сканирования сброшена."));
+                        ru.mqclass.ipcopy.network.CommandDispatcher.getInstance().clearQueue();
+                        context.getSource().sendFeedback(class_2561.method_43470("§6[IPCopy] §c✖ Все активные очереди проверки и захват сессий отменены."));
                         return 1;
+                    })
+                )
+                .then(ClientCommandManager.literal("dump")
+                    .executes(context -> {
+                        return executeDumpCommand(context.getSource());
                     })
                 )
                 .then(ClientCommandManager.literal("test")
@@ -221,9 +228,13 @@ public final class IpCopyClient implements ClientModInitializer {
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("resume")) {
                 ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().resumeScan();
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §a▶ Сканирование возобновлено."));
+            } else if (parts.length == 2 && parts[1].equalsIgnoreCase("dump")) {
+                executeDumpCommand(null);
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("cancel")) {
+                ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().cancel();
                 ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().cancelScan();
-                showLocalMessage(class_2561.method_43470("§6[IPCopy] §c✖ Очередь сканирования сброшена."));
+                ru.mqclass.ipcopy.network.CommandDispatcher.getInstance().clearQueue();
+                showLocalMessage(class_2561.method_43470("§6[IPCopy] §c✖ Все активные очереди проверки и сбор сессий отменены."));
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("test")) {
                 sendTestMessage();
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("toggle")) {
@@ -237,7 +248,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 IpCopyConfig.load();
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §aКонфигурация перезагружена с диска."));
             } else {
-                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|scan <ip1,ip2,...|ник>|pause|resume|cancel|test|toggle|history|clear|reload]"));
+                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|scan <ip1,ip2,...|ник>|dump|pause|resume|cancel|test|toggle|history|clear|reload]"));
             }
             return false;
         }
@@ -411,10 +422,66 @@ public final class IpCopyClient implements ClientModInitializer {
         }
     }
 
+    private static int executeDumpCommand(net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source) {
+        ru.mqclass.ipcopy.scraper.SessionCaptureFSM fsm = ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance();
+        java.util.Set<String> rawIps = fsm.getCapturedRawIps();
+        java.util.Collection<ru.mqclass.ipcopy.forensics.IpForensicEngine.SubnetCluster> clusters = fsm.getAnalyzedClusters().values();
+        String nick = fsm.getCurrentTargetNick();
+
+        if (rawIps.isEmpty() && clusters.isEmpty()) {
+            String activeNick = ru.mqclass.ipcopy.lookup.IpLookupManager.getActiveQueryNick();
+            if (activeNick != null) {
+                ru.mqclass.ipcopy.lookup.IpLookupManager.PlayerLookupData lastData = ru.mqclass.ipcopy.lookup.IpLookupManager.getData(activeNick);
+                if (lastData != null && !lastData.entries.isEmpty()) {
+                    nick = lastData.nick;
+                    java.util.Map<String, ru.mqclass.ipcopy.forensics.IpForensicEngine.SubnetCluster> clMap =
+                        ru.mqclass.ipcopy.forensics.IpForensicEngine.clusterSubnets(lastData.getUniqueIps());
+                    clusters = clMap.values();
+                }
+            }
+        }
+
+        if (clusters.isEmpty() && rawIps.isEmpty()) {
+            class_5250 emptyMsg = class_2561.method_43470("§6[IPCopy] §eНет захваченных данных сессий для дампа. Запустите §f.ipcopy scan <ник>§e.");
+            if (source != null) source.sendFeedback(emptyMsg); else showLocalMessage(emptyMsg);
+            return 0;
+        }
+
+        if (nick == null || nick.isEmpty()) nick = "Target";
+
+        String report = ru.mqclass.ipcopy.forensics.IpForensicEngine.buildDiscordReport(
+            nick,
+            fsm.getTotalIngestedSessions() > 0 ? fsm.getTotalIngestedSessions() : clusters.size(),
+            clusters,
+            fsm.getOverallRiskScore()
+        );
+
+        class_310 client = class_310.method_1551();
+        if (client != null && client.field_1774 != null) {
+            client.field_1774.method_1455(report);
+        }
+
+        class_5250 feedback = class_2561.method_43470(
+            "§6[IPCopy] §a✔ Отчёт судебной экспертизы скопирован в буфер обмена!\n" +
+            "§7Игрок: §f" + nick + " §7| Подсетей /24: §b" + clusters.size() + "\n"
+        );
+        class_5250 copyBtn = class_2561.method_43470("§e[📋 СКОПИРОВАТЬ ПОВТОРНО]")
+            .method_10862(class_2583.field_24360
+                .method_10958(new class_2558.class_10606(report))
+                .method_10949(new class_2568.class_10613(class_2561.method_43470("§7Скопировать отчет Markdown"))));
+
+        class_5250 combined = feedback.method_10852(copyBtn);
+        if (source != null) source.sendFeedback(combined); else showLocalMessage(combined);
+        return 1;
+    }
+
     public static void showSpaceModerationHelpAddon() {
         showLocalMessage(class_2561.method_43470(
             "\n§6IP Copy §7by mqclass (v" + VERSION + ")\n" +
             " §f▪ §6.ipcopy gui [ник] §8– §fпоиск IP по нику и окно настроек\n" +
+            " §f▪ §6.ipcopy scan <ник> §8– §fавтоматическое сканирование всех страниц и проверка подсетей\n" +
+            " §f▪ §6.ipcopy dump §8– §fэкспорт Discord-отчёта в буфер обмена\n" +
+            " §f▪ §6.ipcopy cancel §8– §fсброс очередей и авто-сбора\n" +
             " §f▪ §6.ipcopy test §8– §fтест трёх IP и кнопок копирования\n" +
             " §f▪ §6.ipcopy toggle §8– §fвключить или выключить IP Copy\n" +
             " §f▪ §6.ipcopy history §8– §fистория скопированных IP\n" +

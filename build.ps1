@@ -21,6 +21,14 @@ Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\
 Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\1.21.11 SM\minecraft\.fabric\processedMods" -Filter "*.jar" | ForEach-Object {
     $cpList.Add($_.FullName)
 }
+
+# Add LWJGL & JOML libraries
+Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\libraries\org\lwjgl" -Recurse -Filter "*.jar" | ForEach-Object {
+    $cpList.Add($_.FullName)
+}
+Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\libraries\org\joml" -Recurse -Filter "*.jar" | ForEach-Object {
+    $cpList.Add($_.FullName)
+}
 if (Test-Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\1.21.11\minecraft\.fabric\processedMods") {
     Get-ChildItem -Path "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\1.21.11\minecraft\.fabric\processedMods" -Filter "*.jar" | ForEach-Object {
         $cpList.Add($_.FullName)

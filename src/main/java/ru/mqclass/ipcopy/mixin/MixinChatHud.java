@@ -13,16 +13,19 @@ import net.minecraft.class_7591;
 import ru.mqclass.ipcopy.IpCopyProcessor;
 import ru.mqclass.ipcopy.config.IpCopyConfig;
 import ru.mqclass.ipcopy.lookup.IpLookupManager;
+import ru.mqclass.ipcopy.scraper.SessionCaptureFSM;
 
 /**
- * Mixin into ChatHud to intercept all incoming chat messages (player chat, system messages, whispers)
- * before rendering, ensuring [Скоп. IP] is added across all message sources,
- * and enabling optional silent background lookup processing.
+ * Mixin into net.minecraft.client.gui.hud.ChatHud (class_338).
+ * Intercepts all inbound chat packets before rendering:
+ * 1. Feeds the SessionCaptureFSM auto-pager and suppresses raw page output lines from chat.
+ * 2. Suppresses server duplicate scan responses during background verification queues.
+ * 3. Enriches regular chat messages containing IPv4 addresses with SpaceModeration copy buttons.
  *
  * Authored by mqclass for Minecraft 1.21.11 Fabric.
  */
 @Mixin(class_338.class)
-public class ChatHudMixin {
+public class MixinChatHud {
 
     @Inject(
         method = "method_44811(Lnet/minecraft/class_2561;Lnet/minecraft/class_7469;Lnet/minecraft/class_7591;)V",
@@ -30,7 +33,7 @@ public class ChatHudMixin {
         cancellable = true,
         require = 0
     )
-    private void ipcopy$handleSilentChatAndInspect(
+    private void ipcopy$interceptAndSuppressChat(
         class_2561 message,
         class_7469 signatureData,
         class_7591 indicator,
@@ -41,19 +44,26 @@ public class ChatHudMixin {
         String rawText = message.getString();
         if (rawText == null || rawText.isEmpty()) return;
 
-        // 1. Always inspect incoming messages for dashboard updates
+        // 1. SessionCaptureFSM Auto-Pager interception & spam suppression
+        boolean handledByFsm = SessionCaptureFSM.getInstance().handleInboundMessage(rawText, message);
+        if (handledByFsm) {
+            ci.cancel();
+            return;
+        }
+
+        // 2. Feed dashboard lookup manager
         IpLookupManager.inspectMessage(message, rawText);
 
-        // 2. Intercept and parse scan responses during background batch scanning
+        // 3. Intercept scan responses during batch command queues
         if (ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().isScanning()) {
-            boolean handled = ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().handleServerChatLine(rawText);
-            if (handled) {
+            boolean handledByQueue = ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().handleServerChatLine(rawText);
+            if (handledByQueue) {
                 ci.cancel();
                 return;
             }
         }
 
-        // 3. If silent mode is enabled and message is server auth info/history/pagination, suppress from chat HUD
+        // 4. Silent chat mode for auth messages
         if (IpCopyConfig.getInstance().silentChatMode && IpLookupManager.isAuthMessage(rawText)) {
             ci.cancel();
         }
@@ -65,7 +75,7 @@ public class ChatHudMixin {
         argsOnly = true,
         require = 0
     )
-    private class_2561 ipcopy$modifyChatMessage(class_2561 message) {
+    private class_2561 ipcopy$enrichVisibleMessages(class_2561 message) {
         return IpCopyProcessor.processMessage(message);
     }
 }

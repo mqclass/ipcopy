@@ -16,6 +16,7 @@ import ru.mqclass.ipcopy.config.IpCopyConfig;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -61,6 +62,7 @@ public final class ScanQueueManager {
     private volatile ScanSession currentSession = null;
     private volatile ScheduledFuture<?> currentTask = null;
     private volatile String awaitingResponseForIp = null;
+    private final Map<String, List<String>> pendingSubnetSiblings = new ConcurrentHashMap<>();
 
     private ScanQueueManager() {}
 
@@ -124,7 +126,23 @@ public final class ScanQueueManager {
             return;
         }
 
-        queue.addAll(needNetworkScan);
+        // Subnet /24 clustering optimization: query each distinct provider pool only once
+        Map<String, List<String>> subnetGroups = new LinkedHashMap<>();
+        for (String ip : needNetworkScan) {
+            String cidr = ru.mqclass.ipcopy.forensics.IpForensicEngine.getCidr24(ip);
+            subnetGroups.computeIfAbsent(cidr, k -> new ArrayList<>()).add(ip);
+        }
+
+        pendingSubnetSiblings.clear();
+        for (Map.Entry<String, List<String>> entry : subnetGroups.entrySet()) {
+            List<String> list = entry.getValue();
+            if (!list.isEmpty()) {
+                String rep = list.get(0);
+                pendingSubnetSiblings.put(rep, new ArrayList<>(list));
+                queue.offer(rep);
+            }
+        }
+
         scheduleNextStep(50);
     }
 
@@ -177,17 +195,9 @@ public final class ScanQueueManager {
         session.setCurrentIp(nextIp);
         this.awaitingResponseForIp = nextIp;
 
-        // Dispatch command via Minecraft network handler
-        class_310 client = class_310.method_1551();
-        if (client != null) {
-            client.execute(() -> {
-                if (client.method_1562() != null) {
-                    String cmd = session.getCommandTemplate().replace("%ip%", nextIp);
-                    if (cmd.startsWith("/")) cmd = cmd.substring(1);
-                    client.method_1562().method_45730(cmd);
-                }
-            });
-        }
+        // Dispatch command safely via CommandDispatcher
+        String cmd = session.getCommandTemplate().replace("%ip%", nextIp);
+        ru.mqclass.ipcopy.network.CommandDispatcher.dispatch(cmd);
 
         // Wait rate limit before dispatching the next IP
         long delay = IpCopyConfig.getInstance().scanDelayMs > 0
@@ -254,8 +264,13 @@ public final class ScanQueueManager {
         String targetIp = awaitingResponseForIp;
         if (targetIp != null) {
             List<String> twinks = extractTwinksFromLine(cleanText, session.getTargetNick());
-            session.recordResult(targetIp, twinks, false);
-            ipCache.put(targetIp, new CachedScanResult(targetIp, twinks, System.currentTimeMillis()));
+            List<String> siblings = pendingSubnetSiblings.getOrDefault(targetIp, List.of(targetIp));
+            for (String sibIp : siblings) {
+                if (!session.getResults().containsKey(sibIp)) {
+                    session.recordResult(sibIp, twinks, false);
+                    ipCache.put(sibIp, new CachedScanResult(sibIp, twinks, System.currentTimeMillis()));
+                }
+            }
         }
 
         return true; // Suppress from user's chat HUD
