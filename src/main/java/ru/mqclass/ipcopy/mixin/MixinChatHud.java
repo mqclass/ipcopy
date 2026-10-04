@@ -44,15 +44,17 @@ public class MixinChatHud {
         String rawText = message.getString();
         if (rawText == null || rawText.isEmpty()) return;
 
-        // 1. SessionCaptureFSM Auto-Pager interception & spam suppression
+        // 1. SessionCaptureFSM Auto-Pager interception & tracking
         boolean handledByFsm = SessionCaptureFSM.getInstance().handleInboundMessage(rawText, message);
+
+        // 2. Always feed dashboard lookup manager so GUI stays synchronized in real time
+        IpLookupManager.inspectMessage(message, rawText);
+
+        // 3. Suppress raw lines from visible chat if handled by FSM auto-pager
         if (handledByFsm) {
             ci.cancel();
             return;
         }
-
-        // 2. Feed dashboard lookup manager
-        IpLookupManager.inspectMessage(message, rawText);
 
         // 3. Intercept scan responses during batch command queues
         if (ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().isScanning()) {

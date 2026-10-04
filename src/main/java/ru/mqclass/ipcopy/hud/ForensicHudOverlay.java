@@ -63,9 +63,10 @@ public final class ForensicHudOverlay {
         List<IpForensicEngine.SubnetCluster> clusterList = new ArrayList<>(clusters.values());
         int displayRows = Math.min(4, clusterList.size());
 
-        int cardHeight = 44 + (displayRows > 0 ? (displayRows * 14 + 14) : 0);
+        boolean isScraping = (state == SessionCaptureFSM.State.SCRAPING_PAGES || state == SessionCaptureFSM.State.SESSION_START);
+        int cardHeight = isScraping ? 52 : (44 + (displayRows > 0 ? (displayRows * 14 + 14) : 0));
         int cardX = screenWidth - CARD_WIDTH - 10;
-        int cardY = 10;
+        int cardY = (ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().isScanning()) ? 62 : 10;
 
         // 1. Setup 2D Orthographic projection for SdfRenderer2D
         orthoMatrix.setOrtho(0.0f, (float) screenWidth, (float) screenHeight, 0.0f, -1000.0f, 1000.0f);
@@ -88,16 +89,16 @@ public final class ForensicHudOverlay {
         int badgeBgColor;
         int badgeBorderColor;
 
-        if (state == SessionCaptureFSM.State.SCRAPING_PAGES || state == SessionCaptureFSM.State.SESSION_START) {
-            statusText = "[SCRAPING...]";
+        if (isScraping) {
+            statusText = "[СБОР СТРАНИЦ]";
             badgeBgColor = 0xAA664400;
             badgeBorderColor = 0xFFFFAA00;
         } else if (state == SessionCaptureFSM.State.PROCESSING) {
-            statusText = "[ANALYZING NETWORKS]";
+            statusText = "[АНАЛИЗ РИСКА]";
             badgeBgColor = 0xAA004466;
             badgeBorderColor = 0xFF00AAFF;
         } else {
-            statusText = "[READY]";
+            statusText = "[ГОТОВО]";
             badgeBgColor = 0xAA006622;
             badgeBorderColor = 0xFF00FF66;
         }
@@ -111,8 +112,20 @@ public final class ForensicHudOverlay {
             badgeBgColor, 1.0f, badgeBorderColor
         );
 
-        // 4. Draw Row separators and Risk pills for Subnet table
-        if (displayRows > 0) {
+        // 4. Progress bar during scraping
+        if (isScraping) {
+            int barX = cardX + 8;
+            int barY = cardY + 38;
+            int barWidth = CARD_WIDTH - 16;
+            int barHeight = 4;
+            renderer.drawRoundedRect(barX, barY, barWidth, barHeight, 2.0f, 0xFF222530);
+
+            float pct = Math.max(0.05f, Math.min(1.0f, fsm.getIngestedPagesCount() / (float) Math.max(1, fsm.getTotalExpectedPages())));
+            int fillWidth = (int) (barWidth * pct);
+            if (fillWidth > 0) {
+                renderer.drawRoundedRect(barX, barY, fillWidth, barHeight, 2.0f, 0xFFFFAA00);
+            }
+        } else if (displayRows > 0) {
             int tableStartY = cardY + 38;
             renderer.drawRoundedRect(cardX + 8, tableStartY - 2, CARD_WIDTH - 16, 1, 0.5f, 0xFF282836);
 
@@ -135,34 +148,46 @@ public final class ForensicHudOverlay {
         // Title and target name
         context.method_51433(tr, "§6§lIPCopy §7| §f" + targetNick, cardX + 8, cardY + 8, 0xFFFFFFFF, false);
 
-        // Subtitle counters
-        String statsText = "§7Сессий: §e" + fsm.getTotalIngestedSessions() + " §7| Подсетей /24: §b" + clusters.size();
-        context.method_51433(tr, statsText, cardX + 8, cardY + 22, 0xFFAAAAAA, false);
+        if (isScraping) {
+            String scrapeInfo = "§7Стр. §e" + fsm.getCurrentScrapedPage() + "§7/§e" + fsm.getTotalExpectedPages() +
+                " §8| §7Уник. IP: §b" + fsm.getCapturedRawIps().size();
+            context.method_51433(tr, scrapeInfo, cardX + 8, cardY + 22, 0xFFAAAAAA, false);
+
+            int remainingPages = Math.max(0, fsm.getTotalExpectedPages() - fsm.getIngestedPagesCount());
+            int eta = (int) Math.ceil(remainingPages * 1.35f);
+            String etaText = "§8ETA: §7" + eta + "s §8| §e.ipcopy cancel";
+            int etaWidth = tr.method_1727(etaText);
+            context.method_51433(tr, etaText, cardX + CARD_WIDTH - etaWidth - 8, cardY + 22, 0xFF888888, false);
+        } else {
+            // Subtitle counters
+            String statsText = "§7Сессий: §e" + fsm.getTotalIngestedSessions() + " §7| Подсетей /24: §b" + clusters.size();
+            context.method_51433(tr, statsText, cardX + 8, cardY + 22, 0xFFAAAAAA, false);
+
+            // Table Rows Text
+            if (displayRows > 0) {
+                int tableStartY = cardY + 38;
+                for (int i = 0; i < displayRows; i++) {
+                    int rowY = tableStartY + 2 + i * 14;
+                    IpForensicEngine.SubnetCluster c = clusterList.get(i);
+
+                    // Subnet name
+                    context.method_51433(tr, "§f" + c.cidr24(), cardX + 8, rowY + 2, 0xFFFFFFFF, false);
+
+                    // Short ISP / City (truncated to fit)
+                    String loc = c.countryCode() + " • " + c.ispOrganization();
+                    if (loc.length() > 18) loc = loc.substring(0, 16) + "..";
+                    context.method_51433(tr, "§8" + loc, cardX + 90, rowY + 2, 0xFF888899, false);
+
+                    // Risk percentage
+                    String riskStr = c.riskScore() + "%";
+                    int riskW = tr.method_1727(riskStr);
+                    int riskColor = (c.riskScore() >= 70) ? 0xFFFF5555 : ((c.riskScore() >= 26) ? 0xFFFFAA00 : 0xFF55FF55);
+                    context.method_51433(tr, riskStr, cardX + CARD_WIDTH - 22 - (riskW / 2), rowY + 2, riskColor, false);
+                }
+            }
+        }
 
         // Status pill text
         context.method_51433(tr, statusText, badgeX + 4, badgeY + 2, 0xFFFFFFFF, false);
-
-        // Table Rows Text
-        if (displayRows > 0) {
-            int tableStartY = cardY + 38;
-            for (int i = 0; i < displayRows; i++) {
-                int rowY = tableStartY + 2 + i * 14;
-                IpForensicEngine.SubnetCluster c = clusterList.get(i);
-
-                // Subnet name
-                context.method_51433(tr, "§f" + c.cidr24(), cardX + 8, rowY + 2, 0xFFFFFFFF, false);
-
-                // Short ISP / City (truncated to fit)
-                String loc = c.countryCode() + " • " + c.ispOrganization();
-                if (loc.length() > 18) loc = loc.substring(0, 16) + "..";
-                context.method_51433(tr, "§8" + loc, cardX + 90, rowY + 2, 0xFF888899, false);
-
-                // Risk percentage
-                String riskStr = c.riskScore() + "%";
-                int riskW = tr.method_1727(riskStr);
-                int riskColor = (c.riskScore() >= 70) ? 0xFFFF5555 : ((c.riskScore() >= 26) ? 0xFFFFAA00 : 0xFF55FF55);
-                context.method_51433(tr, riskStr, cardX + CARD_WIDTH - 22 - (riskW / 2), rowY + 2, riskColor, false);
-            }
-        }
     }
 }

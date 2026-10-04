@@ -296,6 +296,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 targetNick = nick;
             } else {
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §eЗагружаю список IP для §f" + nick + "§e..."));
+                ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().prepareScanForNick(nick);
                 IpLookupManager.queryPlayer(nick);
                 IpLookupManager.setUpdateListener(updatedNick -> {
                     if (updatedNick != null && updatedNick.equalsIgnoreCase(nick)) {
@@ -331,6 +332,7 @@ public final class IpCopyClient implements ClientModInitializer {
         if (client == null || client.field_1724 == null || client.method_1562() == null) {
             showLocalMessage(class_2561.method_43470("§cНужно подключиться к серверу."));
         } else {
+            ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().prepareScanForNick(nick);
             IpLookupManager.queryPlayer(nick);
         }
     }

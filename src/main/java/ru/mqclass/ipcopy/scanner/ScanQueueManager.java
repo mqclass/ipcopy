@@ -40,8 +40,8 @@ public final class ScanQueueManager {
 
     private static final ScanQueueManager INSTANCE = new ScanQueueManager();
 
-    // Rate limiter default (1250ms protects against server 1200ms cooldown kick)
-    public static final long DEFAULT_RATE_LIMIT_MS = 1250L;
+    // Rate limiter default (1350ms protects against server 1200ms cooldown kick)
+    public static final long DEFAULT_RATE_LIMIT_MS = 1350L;
     private static final long CACHE_TTL_MS = 30L * 60L * 1000L; // 30 minutes TTL
 
     // In-memory cache record
@@ -200,9 +200,7 @@ public final class ScanQueueManager {
         ru.mqclass.ipcopy.network.CommandDispatcher.dispatch(cmd);
 
         // Wait rate limit before dispatching the next IP
-        long delay = IpCopyConfig.getInstance().scanDelayMs > 0
-            ? IpCopyConfig.getInstance().scanDelayMs
-            : DEFAULT_RATE_LIMIT_MS;
+        long delay = Math.max(DEFAULT_RATE_LIMIT_MS, (long) IpCopyConfig.getInstance().scanDelayMs);
 
         scheduleNextStep(delay);
     }

@@ -179,13 +179,7 @@ public final class IpLookupManager {
         return t;
     });
 
-    // Auto-Crawler state
-    private static volatile boolean autoCrawling = false;
-    private static volatile String autoCrawlNick = null;
-    private static volatile int autoCrawlCurrentPage = 1;
-    private static volatile int autoCrawlTotalPages = 1;
-    private static final Set<Integer> autoCrawlVisitedPages = Collections.synchronizedSet(new HashSet<>());
-    private static volatile ScheduledFuture<?> autoCrawlWatchdog = null;
+
 
     // Batch Dupe state
     private static volatile boolean batchDupeRunning = false;
@@ -351,84 +345,36 @@ public final class IpLookupManager {
         return list;
     }
 
-    // ================= Auto-Crawler Engine =================
+    // ================= Auto-Crawler Engine (Delegated to SessionCaptureFSM) =================
 
     public static boolean isAutoCrawling() {
-        return autoCrawling;
+        return ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().isScraping();
     }
 
     public static String getAutoCrawlNick() {
-        return autoCrawlNick;
+        return ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getCurrentTargetNick();
     }
 
     public static int getAutoCrawlCurrentPage() {
-        return autoCrawlCurrentPage;
+        return ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getCurrentScrapedPage();
     }
 
     public static int getAutoCrawlTotalPages() {
-        return autoCrawlTotalPages;
+        return ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getTotalExpectedPages();
     }
 
     public static synchronized void startAutoCrawl(String nick) {
         if (nick == null || nick.trim().isEmpty()) return;
         PlayerLookupData data = getData(nick);
-        if (data == null || data.serverTotalPages <= 1) return;
-
-        autoCrawling = true;
-        autoCrawlNick = nick.trim();
-        autoCrawlCurrentPage = data.serverCurrentPage;
-        autoCrawlTotalPages = data.serverTotalPages;
-        autoCrawlVisitedPages.clear();
-        autoCrawlVisitedPages.add(data.serverCurrentPage);
-
+        int cur = data != null ? data.serverCurrentPage : 1;
+        int total = data != null ? data.serverTotalPages : 1;
+        ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().startScraping(nick, cur, total);
         notifyListener(nick);
-        scheduleNextCrawlStep(100);
     }
 
     public static synchronized void stopAutoCrawl(boolean completed) {
-        if (!autoCrawling) return;
-        autoCrawling = false;
-        String nick = autoCrawlNick;
-        autoCrawlNick = null;
-
-        if (completed && nick != null) {
-            PlayerLookupData data = getData(nick);
-            int total = data != null ? (!data.allSessions.isEmpty() ? data.allSessions.size() : data.entries.size()) : 0;
-            int unique = data != null ? data.allCollectedIps.size() : 0;
-            IpFeedback.onAutoCrawlFinished(nick, total, unique);
-        }
-        notifyListener(nick);
-    }
-
-    private static void scheduleNextCrawlStep(long delayMs) {
-        if (!autoCrawling || autoCrawlNick == null) return;
-
-        SCHEDULER.schedule(() -> {
-            if (!autoCrawling || autoCrawlNick == null) return;
-            PlayerLookupData data = getData(autoCrawlNick);
-            if (data == null) {
-                stopAutoCrawl(false);
-                return;
-            }
-
-            int nextTarget = -1;
-            for (int p = 1; p <= autoCrawlTotalPages; p++) {
-                if (!autoCrawlVisitedPages.contains(p)) {
-                    nextTarget = p;
-                    break;
-                }
-            }
-
-            if (nextTarget == -1) {
-                stopAutoCrawl(true);
-                return;
-            }
-
-            autoCrawlCurrentPage = nextTarget;
-            notifyListener(autoCrawlNick);
-
-            executeServerCommand("auth find login by player " + autoCrawlNick + " " + nextTarget);
-        }, delayMs, TimeUnit.MILLISECONDS);
+        ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().cancel();
+        notifyListener(activeQueryNick != null ? activeQueryNick : "");
     }
 
     // ================= Batch Dupe Engine =================
@@ -798,10 +744,7 @@ public final class IpLookupManager {
                 }
 
                 // Auto-crawler tracking
-                if (autoCrawling && autoCrawlNick != null && autoCrawlNick.equalsIgnoreCase(nick)) {
-                    autoCrawlVisitedPages.add(data.serverCurrentPage);
-                    autoCrawlTotalPages = data.serverTotalPages;
-                } else if (IpCopyConfig.getInstance().autoFetchAllPages && data.serverTotalPages > 1 && !autoCrawling) {
+                if (IpCopyConfig.getInstance().autoFetchAllPages && data.serverTotalPages > 1 && !isAutoCrawling()) {
                     startAutoCrawl(nick);
                 }
 
@@ -867,12 +810,6 @@ public final class IpLookupManager {
                 if (data != null) {
                     extractNavigationCommands(message, data);
                     data.hasServerPagination = true;
-
-                    if (autoCrawling && autoCrawlNick != null && autoCrawlNick.equalsIgnoreCase(activeHistoryNick)) {
-                        autoCrawlVisitedPages.add(data.serverCurrentPage);
-                        scheduleNextCrawlStep(1350);
-                    }
-
                     notifyListener(activeHistoryNick);
                 }
             }
