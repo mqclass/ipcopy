@@ -302,7 +302,93 @@ public final class IpLookupManager {
         return !data.allSessions.isEmpty() ? new ArrayList<>(data.allSessions) : new ArrayList<>(data.entries);
     }
 
+    public enum UniqueSortMode {
+        TWINKS_FIRST("§c⚠ Твинки", "Сначала подозрительные IP с твинками"),
+        COUNT_DESC("§6🔥 Входы", "По наибольшему количеству сессий"),
+        DATE_NEWEST("§a🕒 Свежие", "Сначала адреса с самыми последними входами"),
+        DATE_OLDEST("§7⏳ Первые", "Сначала первые исторические IP игрока");
+
+        public final String label;
+        public final String description;
+
+        UniqueSortMode(String label, String description) {
+            this.label = label;
+            this.description = description;
+        }
+
+        public String getDisplayName() {
+            return this.label;
+        }
+
+        public UniqueSortMode next() {
+            UniqueSortMode[] vals = values();
+            return vals[(this.ordinal() + 1) % vals.length];
+        }
+    }
+
+    // ================= Express Full Audit State =================
+    private static volatile boolean expressAuditRunning = false;
+    private static volatile String expressAuditNick = null;
+    private static volatile String expressAuditStage = "";
+    private static volatile long expressAuditStartTime = 0L;
+
+    public static boolean isExpressAuditRunning() {
+        return expressAuditRunning;
+    }
+
+    public static String getExpressAuditNick() {
+        return expressAuditNick;
+    }
+
+    public static String getExpressAuditStage() {
+        return expressAuditStage;
+    }
+
+    public static synchronized void startExpressFullAudit(String nick) {
+        if (nick == null || nick.trim().isEmpty()) return;
+        String cleanNick = nick.trim();
+
+        if (expressAuditRunning) {
+            if (cleanNick.equalsIgnoreCase(expressAuditNick)) return;
+            stopExpressAudit(false, "Отменено пользователем");
+        }
+
+        expressAuditRunning = true;
+        expressAuditNick = cleanNick;
+        expressAuditStage = "Запрос профиля...";
+        expressAuditStartTime = System.currentTimeMillis();
+
+        IpFeedback.playAuditStartSound();
+
+        class_310 client = class_310.method_1551();
+        if (client != null && client.field_1724 != null) {
+            client.field_1724.method_7353(
+                class_2561.method_43470("§6[IPCopy] §e🚀 Запущен экспресс-аудит игрока §f" + cleanNick + "§e..."),
+                true
+            );
+        }
+
+        ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().prepareScanForNick(cleanNick);
+        queryPlayer(cleanNick);
+        notifyListener(cleanNick);
+    }
+
+    public static synchronized void stopExpressAudit(boolean completed, String reason) {
+        if (!expressAuditRunning) return;
+        expressAuditRunning = false;
+        String nick = expressAuditNick;
+        expressAuditNick = null;
+        expressAuditStage = "";
+        if (nick != null) {
+            notifyListener(nick);
+        }
+    }
+
     public static List<UniqueIpGroup> getUniqueGroups(String nick) {
+        return getUniqueGroups(nick, UniqueSortMode.COUNT_DESC);
+    }
+
+    public static List<UniqueIpGroup> getUniqueGroups(String nick, UniqueSortMode sortMode) {
         PlayerLookupData data = getData(nick);
         if (data == null) return Collections.emptyList();
 
@@ -332,7 +418,20 @@ public final class IpLookupManager {
             groups.add(new UniqueIpGroup(ip, subnet, count, pct, firstDate, lastDate, twinks, checked));
         }
 
-        groups.sort((a, b) -> Integer.compare(b.count(), a.count()));
+        if (sortMode == null) sortMode = UniqueSortMode.COUNT_DESC;
+        switch (sortMode) {
+            case TWINKS_FIRST -> groups.sort((a, b) -> {
+                int aTwinks = a.twinks().size();
+                int bTwinks = b.twinks().size();
+                if (aTwinks != bTwinks) return Integer.compare(bTwinks, aTwinks);
+                if (a.checked() != b.checked()) return Boolean.compare(b.checked(), a.checked());
+                return Integer.compare(b.count(), a.count());
+            });
+            case COUNT_DESC -> groups.sort((a, b) -> Integer.compare(b.count(), a.count()));
+            case DATE_NEWEST -> groups.sort((a, b) -> b.lastDate().compareTo(a.lastDate()));
+            case DATE_OLDEST -> groups.sort((a, b) -> a.firstDate().compareTo(b.firstDate()));
+        }
+
         return groups;
     }
 
@@ -374,7 +473,15 @@ public final class IpLookupManager {
 
     public static synchronized void stopAutoCrawl(boolean completed) {
         ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().cancel();
-        notifyListener(activeQueryNick != null ? activeQueryNick : "");
+        String nick = activeQueryNick != null ? activeQueryNick : expressAuditNick;
+        if (expressAuditRunning && nick != null && nick.equalsIgnoreCase(expressAuditNick)) {
+            PlayerLookupData data = getData(nick);
+            if (data != null && !data.getUniqueIps().isEmpty()) {
+                expressAuditStage = "Проверка твинков /dupeip...";
+                startBatchDupe(nick);
+            }
+        }
+        notifyListener(nick != null ? nick : "");
     }
 
     // ================= Batch Dupe Engine =================
@@ -430,6 +537,10 @@ public final class IpLookupManager {
                 }
             }
             IpFeedback.onBatchDupeFinished(batchDupeTotal, twinksCount);
+
+            if (expressAuditRunning && nick.equalsIgnoreCase(expressAuditNick)) {
+                finishExpressAudit(nick, data);
+            }
         }
         notifyListener(nick);
     }
@@ -933,6 +1044,7 @@ public final class IpLookupManager {
     }
 
     private static void notifyListener(String nick) {
+        checkExpressAuditTransition(nick);
         Consumer<String> listener = updateListener;
         if (listener != null) {
             class_310 client = class_310.method_1551();
@@ -949,7 +1061,125 @@ public final class IpLookupManager {
         }
     }
 
+    private static void checkExpressAuditTransition(String nick) {
+        if (!expressAuditRunning || expressAuditNick == null || !expressAuditNick.equalsIgnoreCase(nick)) {
+            return;
+        }
+
+        PlayerLookupData data = getData(nick);
+        if (data == null) return;
+
+        if (data.status == LookupStatus.NOT_REGISTERED) {
+            stopExpressAudit(false, "Игрок не зарегистрирован на сервере");
+            IpFeedback.onLookupError("Игрок " + nick + " не зарегистрирован!");
+            return;
+        }
+
+        if (data.status == LookupStatus.NO_HISTORY) {
+            stopExpressAudit(false, "У игрока нет истории входов");
+            IpFeedback.onLookupError("У игрока " + nick + " нет истории входов!");
+            return;
+        }
+
+        if (data.status == LookupStatus.FOUND) {
+            // Stage 1 -> Stage 2: Profile received, history has multiple pages, start auto-crawling
+            if (data.serverTotalPages > 1 && !isAutoCrawling() && !batchDupeRunning && data.serverCurrentPage < data.serverTotalPages) {
+                expressAuditStage = "Сбор сессий (1/" + data.serverTotalPages + ")...";
+                startAutoCrawl(nick);
+                return;
+            }
+
+            // Stage 2 -> Stage 3: Auto-crawling finished or single page, begin batch dupe
+            if (!isAutoCrawling() && !batchDupeRunning && !data.getUniqueIps().isEmpty()) {
+                boolean hasUnchecked = false;
+                for (String ip : data.getUniqueIps()) {
+                    if (!data.ipCheckedForTwinks.contains(ip)) {
+                        hasUnchecked = true;
+                        break;
+                    }
+                }
+                if (hasUnchecked) {
+                    expressAuditStage = "Проверка твинков /dupeip...";
+                    startBatchDupe(nick);
+                } else {
+                    finishExpressAudit(nick, data);
+                }
+            }
+        }
+    }
+
+    private static void finishExpressAudit(String nick, PlayerLookupData data) {
+        expressAuditRunning = false;
+        expressAuditStage = "Готово!";
+
+        String dossier = generateExpressDossier(nick);
+        copyToClipboardInternal(dossier);
+
+        int totalSessions = data != null ? (!data.allSessions.isEmpty() ? data.allSessions.size() : data.entries.size()) : 0;
+        int uniqueIps = data != null ? data.getUniqueIps().size() : 0;
+        int twinks = countTotalTwinks(data);
+
+        IpFeedback.onExpressAuditFinished(nick, totalSessions, uniqueIps, twinks);
+        sendExpressChatReport(nick, totalSessions, uniqueIps, twinks, dossier);
+        notifyListener(nick);
+    }
+
+    public static void sendExpressChatReport(String nick, int totalSessions, int uniqueIps, int twinks, String dossier) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+
+        client.execute(() -> {
+            net.minecraft.class_5250 header = class_2561.method_43470(
+                "\n§6§l[IPCopy] §a✔ Экспресс-аудит под ключ завершён для §e" + nick + "§a!\n" +
+                "§7» Всего сессий: §f" + totalSessions +
+                " §7| Уникальных IP: §e" + uniqueIps +
+                " §7| Твинков обнаружено: " + (twinks > 0 ? "§c§l" + twinks : "§a0 (чист)") + "\n"
+            );
+
+            // Button 1: Copy dossier
+            net.minecraft.class_5250 copyBtn = class_2561.method_43470("§6[📋 СКОПИРОВАТЬ ДОСЬЕ]")
+                .method_10862(net.minecraft.class_2583.field_24360
+                    .method_10977(net.minecraft.class_124.field_1065)
+                    .method_10958(new net.minecraft.class_2558.class_10606(dossier))
+                    .method_10949(new net.minecraft.class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы скопировать полное досье игрока в буфер"))));
+
+            // Button 2: Open GUI
+            net.minecraft.class_5250 guiBtn = class_2561.method_43470(" §a[🔍 В GUI]")
+                .method_10862(net.minecraft.class_2583.field_24360
+                    .method_10977(net.minecraft.class_124.field_1060)
+                    .method_10958(new net.minecraft.class_2558.class_10609("/ipcopy gui " + nick))
+                    .method_10949(new net.minecraft.class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы открыть подробное интерактивное досье"))));
+
+            net.minecraft.class_5250 combined = header.method_10852(copyBtn).method_10852(guiBtn);
+            if (client.field_1724 != null) {
+                client.field_1724.method_7353(combined, false);
+            }
+        });
+    }
+
+    public static int countTotalTwinks(PlayerLookupData data) {
+        if (data == null) return 0;
+        int count = 0;
+        for (List<String> list : data.ipTwinksMap.values()) {
+            count += list.size();
+        }
+        return count;
+    }
+
+    public static void copyToClipboardInternal(String text) {
+        if (text == null) return;
+        class_310 client = class_310.method_1551();
+        if (client != null && client.field_1774 != null) {
+            client.field_1774.method_1455(text);
+        }
+        try {
+            java.awt.datatransfer.StringSelection selection = new java.awt.datatransfer.StringSelection(text);
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, selection);
+        } catch (Throwable ignored) {}
+    }
+
     public static void clearCache() {
+        stopExpressAudit(false, "Очистка кэша");
         stopAutoCrawl(false);
         stopBatchDupe(false);
         CACHE.clear();

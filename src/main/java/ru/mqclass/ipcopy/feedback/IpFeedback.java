@@ -304,4 +304,90 @@ public final class IpFeedback {
             }
         });
     }
+
+    public static void playAuditStartSound() {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(class_3417.field_14710, 1.2F) // block.note_block.hat
+                    );
+                } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    public static void playTabSwitchSound() {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_47978(class_3417.field_15239, 1.2F) // ui.button.click
+                    );
+                } catch (Throwable ignored) {}
+            }
+        });
+    }
+
+    public static void onLookupError(String reason) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(class_3417.field_14697, 0.6F) // block.note_block.bass
+                    );
+                } catch (Throwable ignored) {}
+            }
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                client.field_1724.method_7353(class_2561.method_43470("§c✖ " + reason), true);
+            }
+        });
+    }
+
+    public static void onExpressAuditFinished(String nick, int sessions, int uniqueIps, int twinks) {
+        class_310 client = class_310.method_1551();
+        if (client == null) return;
+        client.execute(() -> {
+            IpCopyConfig config = IpCopyConfig.getInstance();
+            if (config.soundFeedback) {
+                try {
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(class_3417.field_14627, 1.2F) // entity.player.levelup
+                    );
+                    net.minecraft.class_3414 bell = net.minecraft.class_3414.method_47908(
+                        net.minecraft.class_2960.method_60655("minecraft", "block.note_block.bell")
+                    );
+                    client.method_1483().method_4873(
+                        class_1109.method_4758(bell, 1.0F)
+                    );
+                } catch (Throwable ignored) {}
+            }
+
+            if (config.actionbarFeedback && client.field_1724 != null) {
+                client.field_1724.method_7353(
+                    class_2561.method_43470("§a✔ Экспресс-досье §e" + nick + " §aскопировано! §7(Твинков: §c" + twinks + "§7)"),
+                    true
+                );
+            }
+
+            if (config.toastFeedback) {
+                net.minecraft.class_374 toastManager = client.method_1566();
+                if (toastManager != null) {
+                    toastManager.method_1999(new ru.mqclass.ipcopy.toast.IpToast(
+                        class_2561.method_43470("§6[IPCopy] §a✔ Экспресс-аудит завершён!"),
+                        class_2561.method_43470("§e" + nick + " §8| §f" + uniqueIps + " IP §8| §c" + twinks + " тв.")
+                    ));
+                }
+            }
+        });
+    }
 }

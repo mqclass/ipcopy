@@ -58,10 +58,12 @@ public final class IpCopyClient implements ClientModInitializer {
 
         // Wipe session history and queue when leaving a world or disconnecting from server
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            IpHistoryManager.clear();
-            IpLookupManager.clearCache();
+            ru.mqclass.ipcopy.network.CommandDispatcher.getInstance().clearQueue();
+            ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().cancelHard();
             ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().cancelScan();
             ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().clearCache();
+            IpLookupManager.clearCache();
+            IpHistoryManager.clear();
         });
 
         // Register game message modifier (handles anticheat alerts, server logs, command outputs)
@@ -94,6 +96,24 @@ public final class IpCopyClient implements ClientModInitializer {
                         .executes(context -> {
                             String nick = StringArgumentType.getString(context, "nick");
                             openConfigGui(nick);
+                            return 1;
+                        })
+                    )
+                )
+                .then(ClientCommandManager.literal("full")
+                    .then(ClientCommandManager.argument("nick", StringArgumentType.word())
+                        .executes(context -> {
+                            String nick = StringArgumentType.getString(context, "nick");
+                            startExpressAuditCommand(nick);
+                            return 1;
+                        })
+                    )
+                )
+                .then(ClientCommandManager.literal("express")
+                    .then(ClientCommandManager.argument("nick", StringArgumentType.word())
+                        .executes(context -> {
+                            String nick = StringArgumentType.getString(context, "nick");
+                            startExpressAuditCommand(nick);
                             return 1;
                         })
                     )
@@ -212,6 +232,12 @@ public final class IpCopyClient implements ClientModInitializer {
             } else if (parts.length >= 2 && parts[1].equalsIgnoreCase("gui")) {
                 String nick = parts.length >= 3 ? parts[2] : null;
                 openConfigGui(nick);
+            } else if (parts.length >= 2 && (parts[1].equalsIgnoreCase("full") || parts[1].equalsIgnoreCase("express"))) {
+                if (parts.length >= 3) {
+                    startExpressAuditCommand(parts[2].trim());
+                } else {
+                    showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy full <ник> §7— 1-Click экспресс-аудит под ключ"));
+                }
             } else if (parts.length >= 2 && parts[1].equalsIgnoreCase("scan")) {
                 if (parts.length >= 3) {
                     StringBuilder sb = new StringBuilder();
@@ -249,7 +275,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 IpCopyConfig.load();
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §aКонфигурация перезагружена с диска."));
             } else {
-                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|scan <ip1,ip2,...|ник>|dump|pause|resume|cancel|test|toggle|history|clear|reload]"));
+                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|full <ник>|scan <ip1,ip2,...|ник>|dump|pause|resume|cancel|test|toggle|history|clear|reload]"));
             }
             return false;
         }
@@ -265,6 +291,18 @@ public final class IpCopyClient implements ClientModInitializer {
         }
 
         return true;
+    }
+
+    public static void startExpressAuditCommand(String nick) {
+        if (nick == null || nick.trim().isEmpty()) {
+            showLocalMessage(class_2561.method_43470("§cУкажите ник игрока: .ipcopy full <ник>"));
+            return;
+        }
+        String clean = IpLookupManager.stripColorCodes(nick).trim();
+        clean = clean.replaceAll("[^A-Za-z0-9_]", "");
+        if (clean.isEmpty()) return;
+        showLocalMessage(class_2561.method_43470("§6[IPCopy] §e🚀 Запуск 1-Click экспресс-аудита для игрока §f" + clean + "§e..."));
+        ru.mqclass.ipcopy.lookup.IpLookupManager.startExpressFullAudit(clean);
     }
 
     public static void startScanCommand(String raw) {
@@ -371,6 +409,7 @@ public final class IpCopyClient implements ClientModInitializer {
 
         class_5250 commands = class_2561.method_43470(
             "§e» §7Клавиша [I] §f— открыть панель IP Copy в 1 клик\n" +
+            "§e» §7.ipcopy full <ник> §f— 1-Click экспресс-проверка под ключ\n" +
             "§e» §7.ipcopy gui [ник] §f— поиск IP по нику и настройки в GUI\n" +
             "§e» §7.ipcopy test §f— тест с тремя IP игрока §e" + TEST_PLAYER + "§7\n" +
             "§e» §7.ipcopy toggle §f— быстрое вкл/выкл мода\n" +

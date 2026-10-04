@@ -31,6 +31,7 @@ public final class CommandDispatcher {
         return t;
     });
 
+    private final AtomicBoolean isDispatchInFlight = new AtomicBoolean(false);
     private final AtomicBoolean isWorkerScheduled = new AtomicBoolean(false);
     private volatile long lastDispatchTime = 0L;
     private volatile ScheduledFuture<?> nextTask = null;
@@ -86,13 +87,14 @@ public final class CommandDispatcher {
 
     /**
      * Handles server anti-spam signal ("Подождите 1 сек...").
-     * Immediately applies an aggressive penalty backoff of 1600ms to guarantee no kick occurs.
+     * Immediately applies an aggressive penalty backoff of 1800ms to guarantee no kick occurs.
      */
     public synchronized void handleServerThrottle() {
         long now = System.currentTimeMillis();
-        this.lastDispatchTime = Math.max(this.lastDispatchTime, now) + 1600L;
+        this.lastDispatchTime = Math.max(this.lastDispatchTime, now) + 1800L;
         if (nextTask != null && !nextTask.isDone()) {
             nextTask.cancel(false);
+            nextTask = null;
         }
         isWorkerScheduled.set(false);
         scheduleWorkerLocked();
@@ -104,6 +106,7 @@ public final class CommandDispatcher {
             nextTask = null;
         }
         commandQueue.clear();
+        isDispatchInFlight.set(false);
         isWorkerScheduled.set(false);
     }
 
@@ -122,11 +125,7 @@ public final class CommandDispatcher {
     }
 
     private synchronized void scheduleWorkerLocked() {
-        if (isWorkerScheduled.get()) {
-            return;
-        }
-
-        if (commandQueue.isEmpty()) {
+        if (isDispatchInFlight.get() || isWorkerScheduled.get() || commandQueue.isEmpty()) {
             return;
         }
 
@@ -143,20 +142,17 @@ public final class CommandDispatcher {
         String cmd;
         synchronized (this) {
             isWorkerScheduled.set(false);
+            if (isDispatchInFlight.get()) {
+                return;
+            }
             cmd = commandQueue.poll();
             if (cmd == null) {
                 return;
             }
-            this.lastDispatchTime = System.currentTimeMillis();
+            isDispatchInFlight.set(true);
         }
 
         dispatchDirectToNet(cmd);
-
-        synchronized (this) {
-            if (!commandQueue.isEmpty()) {
-                scheduleWorkerLocked();
-            }
-        }
     }
 
     /**
@@ -165,6 +161,7 @@ public final class CommandDispatcher {
     private boolean dispatchDirectToNet(String sanitized) {
         class_310 client = class_310.method_1551();
         if (client == null) {
+            onDispatchFinished();
             return false;
         }
 
@@ -173,14 +170,28 @@ public final class CommandDispatcher {
                 class_634 networkHandler = client.method_1562();
                 if (networkHandler != null) {
                     networkHandler.method_45730(sanitized);
+                    synchronized (this) {
+                        this.lastDispatchTime = Math.max(this.lastDispatchTime, System.currentTimeMillis());
+                    }
                 } else {
                     System.err.println("[IPCopy] CommandDispatcher: NetworkHandler is null, cannot dispatch: " + sanitized);
                 }
             } catch (Throwable t) {
                 System.err.println("[IPCopy] CommandDispatcher failed to dispatch: " + sanitized + " -> " + t.getMessage());
+            } finally {
+                onDispatchFinished();
             }
         });
         return true;
+    }
+
+    private void onDispatchFinished() {
+        synchronized (this) {
+            isDispatchInFlight.set(false);
+            if (!commandQueue.isEmpty()) {
+                scheduleWorkerLocked();
+            }
+        }
     }
 
     /**

@@ -168,6 +168,10 @@ public final class SessionCaptureFSM {
         cancelInternal(true);
     }
 
+    public synchronized void cancelHard() {
+        cancelInternal(false);
+    }
+
     private synchronized void cancelInternal(boolean finalizeIfHasData) {
         if (watchdogFuture != null) {
             watchdogFuture.cancel(true);
@@ -252,20 +256,14 @@ public final class SessionCaptureFSM {
                 try {
                     int curPage = Integer.parseInt(footerMatcher.group(1));
                     int totalPgs = Integer.parseInt(footerMatcher.group(2));
-                    if (this.lastFinishedPage != curPage) {
-                        this.lastFinishedPage = curPage;
-                        onPageFinished(curPage, totalPgs);
-                    }
+                    onPageFinished(curPage, totalPgs);
                 } catch (NumberFormatException ignored) {}
                 return true;
             }
 
             // Check SpaceTimes navigation decoration line
-            if (clean.contains("Начало") && clean.contains("Назад") && clean.contains("Вперёд")) {
-                if (this.lastFinishedPage != this.currentScrapedPage) {
-                    this.lastFinishedPage = this.currentScrapedPage;
-                    onPageFinished(this.currentScrapedPage, this.totalExpectedPages);
-                }
+            if (clean.contains("Начало") && clean.contains("Назад") && (clean.contains("Вперёд") || clean.contains("Вперед"))) {
+                onPageFinished(this.currentScrapedPage, this.totalExpectedPages);
                 return true;
             }
 
@@ -294,12 +292,15 @@ public final class SessionCaptureFSM {
     }
 
     private synchronized void onPageFinished(int curPage, int totalPages) {
-        if (!isScraping()) return;
+        if (!isScraping() || curPage <= 0) return;
 
-        if (curPage > 0) {
-            this.ingestedPages.add(curPage);
-            this.attemptedPages.add(curPage);
+        // Guard against duplicate finishing for the same page
+        if (this.ingestedPages.contains(curPage)) {
+            return;
         }
+
+        this.ingestedPages.add(curPage);
+        this.attemptedPages.add(curPage);
         if (totalPages > 0) {
             this.totalExpectedPages = Math.max(this.totalExpectedPages, totalPages);
         }
@@ -318,7 +319,7 @@ public final class SessionCaptureFSM {
             triggerForensicAnalysis();
         } else {
             // Schedule fetching the next unvisited page sequentially
-            scheduleNextPageStep(200L);
+            scheduleNextPageStep(150L);
         }
     }
 
@@ -403,39 +404,48 @@ public final class SessionCaptureFSM {
         final int totalSessions = this.totalIngestedSessions;
 
         // Perform async ASN and risk scoring lookups via Virtual Threads
-        AsnRiskLookupService.getInstance().lookupAllSubnetsAsync(ips).thenAccept(riskMap -> {
-            Map<String, IpForensicEngine.SubnetCluster> baseClusters = IpForensicEngine.clusterSubnets(ips);
-            Map<String, IpForensicEngine.SubnetCluster> enrichedClusters = new LinkedHashMap<>();
-
-            int maxRisk = 0;
-            int totalRiskSum = 0;
-
-            for (Map.Entry<String, IpForensicEngine.SubnetCluster> entry : baseClusters.entrySet()) {
-                String cidr = entry.getKey();
-                IpForensicEngine.SubnetCluster cluster = entry.getValue();
-                AsnRiskLookupService.AsnRiskRecord record = riskMap.get(cidr);
-
-                if (record != null) {
-                    IpForensicEngine.SubnetCluster enriched = cluster.withRiskData(
-                        record.asn(), record.ispOrganization(), record.countryCode(),
-                        record.city(), record.isProxy(), record.isHosting(), record.riskScore()
-                    );
-                    enrichedClusters.put(cidr, enriched);
-                    maxRisk = Math.max(maxRisk, record.riskScore());
-                    totalRiskSum += record.riskScore();
-                } else {
-                    enrichedClusters.put(cidr, cluster);
+        AsnRiskLookupService.getInstance().lookupAllSubnetsAsync(ips).whenComplete((riskMap, throwable) -> {
+            try {
+                if (throwable != null || riskMap == null) {
+                    riskMap = Collections.emptyMap();
                 }
+
+                Map<String, IpForensicEngine.SubnetCluster> baseClusters = IpForensicEngine.clusterSubnets(ips);
+                Map<String, IpForensicEngine.SubnetCluster> enrichedClusters = new LinkedHashMap<>();
+
+                int maxRisk = 0;
+                int totalRiskSum = 0;
+
+                for (Map.Entry<String, IpForensicEngine.SubnetCluster> entry : baseClusters.entrySet()) {
+                    String cidr = entry.getKey();
+                    IpForensicEngine.SubnetCluster cluster = entry.getValue();
+                    AsnRiskLookupService.AsnRiskRecord record = riskMap.get(cidr);
+
+                    if (record != null) {
+                        IpForensicEngine.SubnetCluster enriched = cluster.withRiskData(
+                            record.asn(), record.ispOrganization(), record.countryCode(),
+                            record.city(), record.isProxy(), record.isHosting(), record.riskScore()
+                        );
+                        enrichedClusters.put(cidr, enriched);
+                        maxRisk = Math.max(maxRisk, record.riskScore());
+                        totalRiskSum += record.riskScore();
+                    } else {
+                        enrichedClusters.put(cidr, cluster);
+                    }
+                }
+
+                int avgRisk = !enrichedClusters.isEmpty() ? (totalRiskSum / enrichedClusters.size()) : 0;
+                this.overallRiskScore = Math.max(maxRisk, avgRisk);
+                this.analyzedClusters.clear();
+                this.analyzedClusters.putAll(enrichedClusters);
+                this.state = State.COMPLETED;
+
+                // Notify player and play finish sound
+                postCompletionSummary(nick, totalSessions, enrichedClusters.values(), overallRiskScore, ips);
+            } catch (Throwable t) {
+                System.err.println("[IPCopy] Error finalizing forensics: " + t.getMessage());
+                this.state = State.IDLE;
             }
-
-            int avgRisk = !enrichedClusters.isEmpty() ? (totalRiskSum / enrichedClusters.size()) : 0;
-            this.overallRiskScore = Math.max(maxRisk, avgRisk);
-            this.analyzedClusters.clear();
-            this.analyzedClusters.putAll(enrichedClusters);
-            this.state = State.COMPLETED;
-
-            // Notify player and play finish sound
-            postCompletionSummary(nick, totalSessions, enrichedClusters.values(), overallRiskScore, ips);
         });
     }
 
