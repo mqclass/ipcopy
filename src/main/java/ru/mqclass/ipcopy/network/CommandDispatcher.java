@@ -7,6 +7,7 @@ import ru.mqclass.ipcopy.config.IpCopyConfig;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -21,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class CommandDispatcher {
 
     private static final CommandDispatcher INSTANCE = new CommandDispatcher();
-    public static final long DEFAULT_MIN_INTERVAL_MS = 1350L;
+    public static final long HARD_MIN_INTERVAL_MS = 1450L;
 
     private final ConcurrentLinkedQueue<String> commandQueue = new ConcurrentLinkedQueue<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -30,8 +31,9 @@ public final class CommandDispatcher {
         return t;
     });
 
-    private final AtomicBoolean isProcessingQueue = new AtomicBoolean(false);
+    private final AtomicBoolean isWorkerScheduled = new AtomicBoolean(false);
     private volatile long lastDispatchTime = 0L;
+    private volatile ScheduledFuture<?> nextTask = null;
 
     private CommandDispatcher() {}
 
@@ -41,13 +43,12 @@ public final class CommandDispatcher {
 
     public long getMinIntervalMs() {
         int cfgDelay = IpCopyConfig.getInstance().scanDelayMs;
-        return Math.max(DEFAULT_MIN_INTERVAL_MS, cfgDelay > 0 ? (long) cfgDelay : DEFAULT_MIN_INTERVAL_MS);
+        return Math.max(HARD_MIN_INTERVAL_MS, (long) cfgDelay);
     }
 
     /**
      * Dispatches a command to the server with guaranteed anti-spam rate limiting.
-     * If the server cooldown is currently active, the command is automatically enqueued
-     * and executed the moment the cooldown expires.
+     * All commands are strictly serialized in an atomic FIFO queue spaced by >= 1450ms.
      *
      * @param rawCommand the command string (with or without leading slash)
      * @return true if command was scheduled or dispatched
@@ -62,36 +63,48 @@ public final class CommandDispatcher {
             return false;
         }
 
-        CommandDispatcher dispatcher = getInstance();
-        long interval = dispatcher.getMinIntervalMs();
-        long now = System.currentTimeMillis();
-
-        synchronized (dispatcher) {
-            if (dispatcher.commandQueue.isEmpty() && !dispatcher.isProcessingQueue.get() && (now - dispatcher.lastDispatchTime >= interval)) {
-                dispatcher.lastDispatchTime = now;
-                return dispatcher.dispatchDirectToNet(sanitized);
-            } else {
-                dispatcher.enqueue(sanitized);
-                return true;
-            }
-        }
+        getInstance().enqueue(sanitized);
+        return true;
     }
 
     /**
      * Enqueues a command for sequential, rate-limited execution.
+     * Prevents queue spam by deduplicating identical commands already waiting in queue.
      */
-    public void enqueue(String rawCommand) {
+    public synchronized void enqueue(String rawCommand) {
         if (rawCommand == null || rawCommand.isBlank()) return;
         String sanitized = sanitize(rawCommand);
         if (sanitized.isEmpty()) return;
 
+        if (commandQueue.contains(sanitized)) {
+            return;
+        }
+
         commandQueue.offer(sanitized);
-        ensureQueueWorker();
+        scheduleWorkerLocked();
+    }
+
+    /**
+     * Handles server anti-spam signal ("Подождите 1 сек...").
+     * Immediately applies an aggressive penalty backoff of 1600ms to guarantee no kick occurs.
+     */
+    public synchronized void handleServerThrottle() {
+        long now = System.currentTimeMillis();
+        this.lastDispatchTime = Math.max(this.lastDispatchTime, now) + 1600L;
+        if (nextTask != null && !nextTask.isDone()) {
+            nextTask.cancel(false);
+        }
+        isWorkerScheduled.set(false);
+        scheduleWorkerLocked();
     }
 
     public synchronized void clearQueue() {
+        if (nextTask != null) {
+            nextTask.cancel(true);
+            nextTask = null;
+        }
         commandQueue.clear();
-        isProcessingQueue.set(false);
+        isWorkerScheduled.set(false);
     }
 
     public int getQueueSize() {
@@ -108,16 +121,12 @@ public final class CommandDispatcher {
         return Math.max(0L, interval - elapsed);
     }
 
-    private void ensureQueueWorker() {
-        if (isProcessingQueue.compareAndSet(false, true)) {
-            scheduleNextQueueItem();
+    private synchronized void scheduleWorkerLocked() {
+        if (isWorkerScheduled.get()) {
+            return;
         }
-    }
 
-    private void scheduleNextQueueItem() {
-        String nextCmd = commandQueue.poll();
-        if (nextCmd == null) {
-            isProcessingQueue.set(false);
+        if (commandQueue.isEmpty()) {
             return;
         }
 
@@ -126,14 +135,28 @@ public final class CommandDispatcher {
         long elapsed = now - lastDispatchTime;
         long delay = Math.max(0L, interval - elapsed);
 
-        scheduler.schedule(() -> {
-            try {
-                lastDispatchTime = System.currentTimeMillis();
-                dispatchDirectToNet(nextCmd);
-            } finally {
-                scheduleNextQueueItem();
+        isWorkerScheduled.set(true);
+        nextTask = scheduler.schedule(this::executeNextCommand, delay, TimeUnit.MILLISECONDS);
+    }
+
+    private void executeNextCommand() {
+        String cmd;
+        synchronized (this) {
+            isWorkerScheduled.set(false);
+            cmd = commandQueue.poll();
+            if (cmd == null) {
+                return;
             }
-        }, delay, TimeUnit.MILLISECONDS);
+            this.lastDispatchTime = System.currentTimeMillis();
+        }
+
+        dispatchDirectToNet(cmd);
+
+        synchronized (this) {
+            if (!commandQueue.isEmpty()) {
+                scheduleWorkerLocked();
+            }
+        }
     }
 
     /**

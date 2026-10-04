@@ -52,8 +52,9 @@ public final class IpCopyClient implements ClientModInitializer {
         // Initialize Anti-AFK keepalive manager
         ru.mqclass.ipcopy.afk.AntiAfkManager.getInstance().init();
 
-        // Register real-time HUD scan overlay
+        // Register real-time HUD scan & forensic overlays
         net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register(ru.mqclass.ipcopy.hud.ScanHudOverlay::render);
+        net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register(ru.mqclass.ipcopy.hud.ForensicHudOverlay::render);
 
         // Wipe session history and queue when leaving a world or disconnecting from server
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {

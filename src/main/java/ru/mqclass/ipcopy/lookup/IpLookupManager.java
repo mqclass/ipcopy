@@ -711,10 +711,7 @@ public final class IpLookupManager {
                     lastAutoFetchCmd = clickCmd;
 
                     final String finalCmd = clickCmd.startsWith("/") ? clickCmd.substring(1) : clickCmd;
-
-                    // Delay follow-up command by 1300ms so the server spam filter never outputs "Подождите 1 сек"
-                    java.util.concurrent.CompletableFuture.delayedExecutor(1300, java.util.concurrent.TimeUnit.MILLISECONDS)
-                        .execute(() -> ru.mqclass.ipcopy.network.CommandDispatcher.dispatch(finalCmd));
+                    ru.mqclass.ipcopy.network.CommandDispatcher.dispatch(finalCmd);
                 }
 
                 notifyListener(nick);

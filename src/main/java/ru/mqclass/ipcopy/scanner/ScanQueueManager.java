@@ -40,8 +40,8 @@ public final class ScanQueueManager {
 
     private static final ScanQueueManager INSTANCE = new ScanQueueManager();
 
-    // Rate limiter default (1350ms protects against server 1200ms cooldown kick)
-    public static final long DEFAULT_RATE_LIMIT_MS = 1350L;
+    // Rate limiter default (1450ms protects against server 1200ms cooldown kick)
+    public static final long DEFAULT_RATE_LIMIT_MS = 1450L;
     private static final long CACHE_TTL_MS = 30L * 60L * 1000L; // 30 minutes TTL
 
     // In-memory cache record

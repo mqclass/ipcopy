@@ -78,6 +78,8 @@ public final class SessionCaptureFSM {
     private volatile int currentScrapedPage = 1;
     private volatile int totalIngestedSessions = 0;
     private volatile boolean scanExplicitlyRequested = false;
+    private volatile boolean isRequestInFlight = false;
+    private volatile int lastFinishedPage = -1;
 
     private final Set<Integer> ingestedPages = ConcurrentHashMap.newKeySet();
     private final Set<Integer> attemptedPages = ConcurrentHashMap.newKeySet();
@@ -183,6 +185,8 @@ public final class SessionCaptureFSM {
         currentScrapedPage = 1;
         totalIngestedSessions = 0;
         scanExplicitlyRequested = false;
+        isRequestInFlight = false;
+        lastFinishedPage = -1;
         ingestedPages.clear();
         attemptedPages.clear();
         capturedRawIps.clear();
@@ -214,7 +218,8 @@ public final class SessionCaptureFSM {
                     this.totalExpectedPages = Math.max(this.totalExpectedPages, total);
                     this.ingestedPages.add(cur);
                     this.attemptedPages.add(cur);
-                    restartWatchdog(3500L);
+                    this.isRequestInFlight = false; // Page header arrived, reading content
+                    restartWatchdog(6000L);
                     return true; // Suppress from chat
                 } else if (state == State.IDLE || !this.currentTargetNick.equalsIgnoreCase(nick)) {
                     boolean shouldAutoScrape = scanExplicitlyRequested
@@ -231,7 +236,7 @@ public final class SessionCaptureFSM {
 
         // 2. If actively scraping, collect session entries and check page completion
         if (isScraping()) {
-            restartWatchdog(3500L);
+            restartWatchdog(6000L);
 
             // Extract IPv4 addresses
             List<String> ips = IpForensicEngine.extractUniqueIps(clean);
@@ -247,14 +252,20 @@ public final class SessionCaptureFSM {
                 try {
                     int curPage = Integer.parseInt(footerMatcher.group(1));
                     int totalPgs = Integer.parseInt(footerMatcher.group(2));
-                    onPageFinished(curPage, totalPgs);
+                    if (this.lastFinishedPage != curPage) {
+                        this.lastFinishedPage = curPage;
+                        onPageFinished(curPage, totalPgs);
+                    }
                 } catch (NumberFormatException ignored) {}
                 return true;
             }
 
             // Check SpaceTimes navigation decoration line
             if (clean.contains("Начало") && clean.contains("Назад") && clean.contains("Вперёд")) {
-                onPageFinished(this.currentScrapedPage, this.totalExpectedPages);
+                if (this.lastFinishedPage != this.currentScrapedPage) {
+                    this.lastFinishedPage = this.currentScrapedPage;
+                    onPageFinished(this.currentScrapedPage, this.totalExpectedPages);
+                }
                 return true;
             }
 
@@ -275,8 +286,11 @@ public final class SessionCaptureFSM {
         this.ingestedPages.add(this.currentScrapedPage);
         this.attemptedPages.add(this.currentScrapedPage);
         this.state = State.SCRAPING_PAGES;
+        this.isRequestInFlight = false;
+        this.lastFinishedPage = -1;
 
-        scheduleNextPageStep(100L);
+        // Keep watchdog active while reading initial page stream
+        restartWatchdog(6000L);
     }
 
     private synchronized void onPageFinished(int curPage, int totalPages) {
@@ -290,44 +304,60 @@ public final class SessionCaptureFSM {
             this.totalExpectedPages = Math.max(this.totalExpectedPages, totalPages);
         }
 
+        // Sync collected IPs into lookup data so GUI gets populated immediately
+        ru.mqclass.ipcopy.lookup.IpLookupManager.PlayerLookupData data =
+            ru.mqclass.ipcopy.lookup.IpLookupManager.getData(this.currentTargetNick);
+        if (data != null) {
+            data.allCollectedIps.addAll(this.capturedRawIps);
+        }
+
+        this.isRequestInFlight = false;
+
         if (this.ingestedPages.size() >= this.totalExpectedPages) {
             // All pages captured!
             triggerForensicAnalysis();
         } else {
-            // Schedule fetching the next unvisited page
-            scheduleNextPageStep(50L);
+            // Schedule fetching the next unvisited page sequentially
+            scheduleNextPageStep(200L);
         }
     }
 
     private synchronized void scheduleNextPageStep(long delayMs) {
         if (!isScraping()) return;
+        if (isRequestInFlight) return; // Strict single in-flight lock
+
+        int nextTarget = -1;
+        for (int p = 1; p <= totalExpectedPages; p++) {
+            if (!ingestedPages.contains(p) && !attemptedPages.contains(p)) {
+                nextTarget = p;
+                break;
+            }
+        }
+
+        if (nextTarget == -1) {
+            // If all pages were ingested or attempted, finish!
+            triggerForensicAnalysis();
+            return;
+        }
+
+        final int pageToFetch = nextTarget;
+        attemptedPages.add(pageToFetch);
+        currentScrapedPage = pageToFetch;
+        isRequestInFlight = true;
 
         scheduler.schedule(() -> {
-            if (!isScraping()) return;
-
-            int nextTarget = -1;
-            for (int p = 1; p <= totalExpectedPages; p++) {
-                if (!ingestedPages.contains(p) && !attemptedPages.contains(p)) {
-                    nextTarget = p;
-                    break;
+            synchronized (this) {
+                if (!isScraping()) {
+                    isRequestInFlight = false;
+                    return;
                 }
             }
-
-            if (nextTarget == -1) {
-                // If all pages were ingested or attempted, finish!
-                triggerForensicAnalysis();
-                return;
-            }
-
-            final int pageToFetch = nextTarget;
-            attemptedPages.add(pageToFetch);
-            currentScrapedPage = pageToFetch;
 
             // Dispatch command strictly through rate-limited CommandDispatcher
             CommandDispatcher.dispatch("auth find login by player " + currentTargetNick + " " + pageToFetch);
 
             // Arm watchdog timer in case server drops packet or throttles
-            restartWatchdog(3800L);
+            restartWatchdog(6000L);
         }, delayMs, TimeUnit.MILLISECONDS);
     }
 
@@ -336,9 +366,15 @@ public final class SessionCaptureFSM {
             watchdogFuture.cancel(false);
         }
         watchdogFuture = scheduler.schedule(() -> {
-            if (isScraping()) {
-                // Timeout fired on page; proceed to next page or finish
-                scheduleNextPageStep(50L);
+            synchronized (this) {
+                if (isScraping()) {
+                    isRequestInFlight = false;
+                    if (ingestedPages.size() >= totalExpectedPages || attemptedPages.size() >= totalExpectedPages) {
+                        triggerForensicAnalysis();
+                    } else {
+                        scheduleNextPageStep(100L);
+                    }
+                }
             }
         }, timeoutMs, TimeUnit.MILLISECONDS);
     }

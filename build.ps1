@@ -87,8 +87,8 @@ if (Test-Path $jarFile) {
     $modsTarget = "C:\Users\winstone\AppData\Roaming\FreesmLauncher\instances\1.21.11 SM\minecraft\mods"
     if (Test-Path $modsTarget) {
         try {
-            # Remove old versions
-            Get-ChildItem -Path $modsTarget -Filter "ipcopy*.jar" | Remove-Item -Force -ErrorAction Stop
+            # Remove old versions (including .disabled)
+            Get-ChildItem -Path $modsTarget -Filter "ipcopy*" | Remove-Item -Force -ErrorAction Stop
             Copy-Item -Force $jarFile "$modsTarget\ipcopy-1.5.0.jar"
             Write-Host "Deployed to FreesmLauncher mods: $modsTarget\ipcopy-1.5.0.jar"
         } catch {

@@ -63,8 +63,8 @@ public class IpCopyScreen extends class_437 {
     private long queryStartTime = 0L;
     private boolean queryTimedOut = false;
 
-    // Server page navigation state & anti-spam cooldown (1.3s)
-    private static final long SERVER_NAV_COOLDOWN_MS = 1300L;
+    // Server page navigation state & anti-spam cooldown (1.5s)
+    private static final long SERVER_NAV_COOLDOWN_MS = 1500L;
     private long lastServerNavTime = 0L;
     private boolean isNavigatingServerPage = false;
     private long serverNavStartTime = 0L;

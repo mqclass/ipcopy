@@ -44,13 +44,22 @@ public class MixinChatHud {
         String rawText = message.getString();
         if (rawText == null || rawText.isEmpty()) return;
 
-        // 1. SessionCaptureFSM Auto-Pager interception & tracking
+        // 1. Intercept server rate limit warnings ("Подождите 1 сек...") and back off immediately
+        if (rawText.contains("Подождите 1 сек") || (rawText.toLowerCase().contains("подождите") && rawText.toLowerCase().contains("команд"))) {
+            ru.mqclass.ipcopy.network.CommandDispatcher.getInstance().handleServerThrottle();
+            if (SessionCaptureFSM.getInstance().isScraping() || ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().isScanning()) {
+                ci.cancel();
+                return;
+            }
+        }
+
+        // 2. SessionCaptureFSM Auto-Pager interception & tracking
         boolean handledByFsm = SessionCaptureFSM.getInstance().handleInboundMessage(rawText, message);
 
-        // 2. Always feed dashboard lookup manager so GUI stays synchronized in real time
+        // 3. Always feed dashboard lookup manager so GUI stays synchronized in real time
         IpLookupManager.inspectMessage(message, rawText);
 
-        // 3. Suppress raw lines from visible chat if handled by FSM auto-pager
+        // 4. Suppress raw lines from visible chat if handled by FSM auto-pager
         if (handledByFsm) {
             ci.cancel();
             return;
