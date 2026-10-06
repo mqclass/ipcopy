@@ -72,8 +72,8 @@ public final class PlayerReportExporter {
                 .append(entry.ip()).append(" | [").append(safe(entry.sessionType())).append("] [⚡/24: ")
                 .append(SubnetMatcher.getSubnet24String(entry.ip())).append("]\n");
         }
-        report.append(separator).append("СПИСОК ВСЕХ IP ЧЕРЕЗ ПРОБЕЛ:\n")
-            .append(String.join(" ", uniqueIps)).append('\n')
+        report.append(separator).append("СПИСОК ВСЕХ УНИКАЛЬНЫХ IP (В СТОЛБИК ЧЕРЕЗ ЗАПЯТУЮ):\n")
+            .append(ru.mqclass.ipcopy.IpCopyProcessor.formatIpsColumn(uniqueIps)).append('\n')
             .append(separator).append("Сгенерировано модом IP Copy by mqclass\n");
         return report.toString();
     }

@@ -461,13 +461,14 @@ public class IpCopyScreen extends class_437 {
             // Crawler or Batch Dupe right in toolbar
             int actionBtnX = centerX + 108;
             int actionBtnW = 80;
-            if (lookupData.serverTotalPages > 1 && lookupData.serverCurrentPage < lookupData.serverTotalPages) {
+            if (lookupData.serverTotalPages > 1 && (IpLookupManager.isAutoCrawling() || lookupData.getCollectedPagesCount() < lookupData.serverTotalPages)) {
                 if (IpLookupManager.isAutoCrawling()) {
+                    int ingested = Math.max(1, IpLookupManager.getAutoCrawlIngestedPagesCount());
                     this.method_37063(class_4185.method_46430(
-                        class_2561.method_43470("§e⏳ " + IpLookupManager.getAutoCrawlCurrentPage() + "/" + lookupData.serverTotalPages),
+                        class_2561.method_43470("§e⏳ " + ingested + "/" + lookupData.serverTotalPages),
                         btn -> {}
                     ).method_46434(actionBtnX, toolbarY, 62, 17)
-                     .method_46436(class_7919.method_47407(class_2561.method_43470("§eАвто-сбор страниц в процессе...\n§7Безопасная задержка 1.45с")))
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§eАвто-сбор всех страниц в процессе...\n§7Собрано страниц: §f" + ingested + " из " + lookupData.serverTotalPages + "\n§7Безопасная задержка 1.45с")))
                      .method_46431());
 
                     this.method_37063(class_4185.method_46430(
@@ -478,13 +479,13 @@ public class IpCopyScreen extends class_437 {
                      .method_46431());
                 } else {
                     this.method_37063(class_4185.method_46430(
-                        class_2561.method_43470("§6⚡ Сбор (" + lookupData.serverTotalPages + ")"),
+                        class_2561.method_43470("§6⚡ Сбор (" + lookupData.getCollectedPagesCount() + "/" + lookupData.serverTotalPages + ")"),
                         btn -> {
                             IpLookupManager.startAutoCrawl(this.displayedNick);
                             this.rebuildWidgets();
                         }
                     ).method_46434(actionBtnX, toolbarY, actionBtnW, 17)
-                     .method_46436(class_7919.method_47407(class_2561.method_43470("§6Автоматически собрать все " + lookupData.serverTotalPages + " страниц сессий\n§7Скачивает страницы с безопасной паузой 1.45с")))
+                     .method_46436(class_7919.method_47407(class_2561.method_43470("§6Автоматически собрать все " + lookupData.serverTotalPages + " страниц сессий\n§7Собрано: §f" + lookupData.getCollectedPagesCount() + "/" + lookupData.serverTotalPages + " §8(пауза 1.45с)")))
                      .method_46431());
                 }
             } else {
@@ -791,6 +792,9 @@ public class IpCopyScreen extends class_437 {
 
         if (!entries.isEmpty() || (lookupData != null && (!lookupData.allSessions.isEmpty() || !lookupData.allCollectedIps.isEmpty()))) {
             Set<String> uniqueIps = new LinkedHashSet<>();
+            for (IpLookupManager.UniqueIpGroup g : IpLookupManager.getUniqueGroups(this.displayedNick, this.currentSortMode)) {
+                uniqueIps.add(g.ip());
+            }
             if (lookupData != null && !lookupData.allCollectedIps.isEmpty()) {
                 uniqueIps.addAll(lookupData.allCollectedIps);
             }
@@ -799,16 +803,18 @@ public class IpCopyScreen extends class_437 {
             }
             int uniqueCount = uniqueIps.size();
 
-            // 1. [📋 Все IP (N)]
+            // 1. [📋 Все IP (N)] — copies all unique IPs in column format with commas (1.1.1.1,\n2.2.2.2)
             this.method_37063(class_4185.method_46430(
                 class_2561.method_43470("§e📋 Все IP (" + uniqueCount + ")"),
                 button -> {
-                    String joined = String.join(" ", uniqueIps);
+                    String joined = IpCopyProcessor.formatIpsColumn(uniqueIps);
                     copyToClipboard(joined);
                     button.method_25355(class_2561.method_43470("§aСкопировано!"));
                 }
             ).method_46434(centerX - 188, bottomY, 92, 20)
-             .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать все уникальные IP через пробел\n§7Всего уникальных адресов: §f" + uniqueCount)))
+             .method_46436(class_7919.method_47407(class_2561.method_43470(
+                 "§eСкопировать все уникальные IP в столбик через запятую:\n§f1.1.1.1,\n§f2.2.2.2\n§7Всего уникальных адресов: §a" + uniqueCount
+             )))
              .method_46431());
 
             // 2. [📋 Досье]
@@ -966,12 +972,12 @@ public class IpCopyScreen extends class_437 {
                 button -> {
                     List<String> allIps = new ArrayList<>();
                     for (IpHistoryManager.HistoryEntry entry : history) allIps.add(entry.ip());
-                    String joined = String.join(" ", allIps);
+                    String joined = IpCopyProcessor.formatIpsColumn(allIps);
                     copyToClipboard(joined);
                     button.method_25355(class_2561.method_43470("§aСкопировано!"));
                 }
             ).method_46434(centerX - 165, bottomY, 100, 20)
-             .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать всю историю IP через пробел")))
+             .method_46436(class_7919.method_47407(class_2561.method_43470("§eСкопировать всю историю IP в столбик через запятую")))
              .method_46431());
 
             this.method_37063(class_4185.method_46430(

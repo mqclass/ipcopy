@@ -53,11 +53,11 @@ public class MixinChatHud {
             }
         }
 
-        // 2. SessionCaptureFSM Auto-Pager interception & tracking
-        boolean handledByFsm = SessionCaptureFSM.getInstance().handleInboundMessage(rawText, message);
-
-        // 3. Always feed dashboard lookup manager so GUI stays synchronized in real time
+        // 2. Always feed dashboard lookup manager first so page sessions and IPs are parsed in real time
         IpLookupManager.inspectMessage(message, rawText);
+
+        // 3. SessionCaptureFSM Auto-Pager interception & tracking
+        boolean handledByFsm = SessionCaptureFSM.getInstance().handleInboundMessage(rawText, message);
 
         // 4. Suppress raw lines from visible chat if handled by FSM auto-pager
         if (handledByFsm) {

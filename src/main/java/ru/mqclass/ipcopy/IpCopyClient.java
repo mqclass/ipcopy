@@ -150,6 +150,17 @@ public final class IpCopyClient implements ClientModInitializer {
                         return 1;
                     })
                 )
+                .then(ClientCommandManager.literal("copy")
+                    .executes(context -> {
+                        return executeCopyUniqueIpsCommand(context.getSource(), null);
+                    })
+                    .then(ClientCommandManager.argument("nick", StringArgumentType.word())
+                        .executes(context -> {
+                            String nick = StringArgumentType.getString(context, "nick");
+                            return executeCopyUniqueIpsCommand(context.getSource(), nick);
+                        })
+                    )
+                )
                 .then(ClientCommandManager.literal("dump")
                     .executes(context -> {
                         return executeDumpCommand(context.getSource());
@@ -255,6 +266,9 @@ public final class IpCopyClient implements ClientModInitializer {
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("resume")) {
                 ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().resumeScan();
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §a▶ Сканирование возобновлено."));
+            } else if (parts.length >= 2 && parts[1].equalsIgnoreCase("copy")) {
+                String nick = parts.length >= 3 ? parts[2] : null;
+                executeCopyUniqueIpsCommand(null, nick);
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("dump")) {
                 executeDumpCommand(null);
             } else if (parts.length == 2 && parts[1].equalsIgnoreCase("cancel")) {
@@ -275,7 +289,7 @@ public final class IpCopyClient implements ClientModInitializer {
                 IpCopyConfig.load();
                 showLocalMessage(class_2561.method_43470("§6[IPCopy] §aКонфигурация перезагружена с диска."));
             } else {
-                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|full <ник>|scan <ip1,ip2,...|ник>|dump|pause|resume|cancel|test|toggle|history|clear|reload]"));
+                showLocalMessage(class_2561.method_43470("§cИспользование: .ipcopy [gui <ник>|full <ник>|copy [ник]|scan <ip1,ip2,...|ник>|dump|pause|resume|cancel|test|toggle|history|clear|reload]"));
             }
             return false;
         }
@@ -410,6 +424,7 @@ public final class IpCopyClient implements ClientModInitializer {
         class_5250 commands = class_2561.method_43470(
             "§e» §7Клавиша [I] §f— открыть панель IP Copy в 1 клик\n" +
             "§e» §7.ipcopy full <ник> §f— 1-Click экспресс-проверка под ключ\n" +
+            "§e» §7.ipcopy copy [ник] §f— скопировать все уник. IP в столбик через запятую\n" +
             "§e» §7.ipcopy gui [ник] §f— поиск IP по нику и настройки в GUI\n" +
             "§e» §7.ipcopy test §f— тест с тремя IP игрока §e" + TEST_PLAYER + "§7\n" +
             "§e» §7.ipcopy toggle §f— быстрое вкл/выкл мода\n" +
@@ -439,11 +454,10 @@ public final class IpCopyClient implements ClientModInitializer {
             String ip = history.get(i);
             class_5250 line = class_2561.method_43470("§7" + (i + 1) + ". §e" + ip + " ");
             line.method_10852(IpCopyProcessor.createIpButton(ip, false));
-            if (i < history.size() - 1) {
-                line.method_27693("\n");
-            }
+            line.method_27693("\n");
             header.method_10852(line);
         }
+        header.method_10852(IpCopyProcessor.createCopyAllUniqueButton(history));
         return header;
     }
 
@@ -464,6 +478,48 @@ public final class IpCopyClient implements ClientModInitializer {
         }
     }
 
+    private static int executeCopyUniqueIpsCommand(net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source, String rawNick) {
+        String nick = rawNick;
+        if (nick == null || nick.isBlank()) {
+            nick = ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getCurrentTargetNick();
+            if (nick == null || nick.isBlank() || nick.equals("Player")) {
+                nick = IpLookupManager.getActiveQueryNick();
+            }
+        }
+        java.util.LinkedHashSet<String> allIps = new java.util.LinkedHashSet<>();
+        if (nick != null && !nick.isBlank()) {
+            IpLookupManager.PlayerLookupData data = IpLookupManager.getData(nick);
+            if (data != null) {
+                allIps.addAll(data.getUniqueIps());
+            }
+        }
+        String fsmNick = ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getCurrentTargetNick();
+        if (nick == null || nick.isBlank() || nick.equalsIgnoreCase(fsmNick)) {
+            allIps.addAll(ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getCapturedRawIps());
+        }
+        if (allIps.isEmpty()) {
+            allIps.addAll(IpHistoryManager.getHistory());
+            if (nick == null || nick.isBlank()) nick = "История";
+        }
+        if (allIps.isEmpty()) {
+            class_5250 emptyMsg = class_2561.method_43470("§6[IPCopy] §eНет собранных уникальных IP для копирования. Сначала проверьте игрока (§f.apf <ник>§e).");
+            if (source != null) source.sendFeedback(emptyMsg); else showLocalMessage(emptyMsg);
+            return 0;
+        }
+        String formatted = IpCopyProcessor.formatIpsColumn(allIps);
+        class_310 client = class_310.method_1551();
+        if (client != null && client.field_1774 != null) {
+            client.field_1774.method_1455(formatted);
+        }
+        ru.mqclass.ipcopy.feedback.IpFeedback.onIpCopied("Уник. IP (" + allIps.size() + " шт. в столбик)");
+        class_5250 msg = class_2561.method_43470(
+            "§6[IPCopy] §a✔ Скопировано §e" + allIps.size() + " §aуникальных IP (" + (nick != null ? nick : "Игрок") + ") в столбик через запятую!\n"
+        );
+        msg.method_10852(IpCopyProcessor.createCopyAllUniqueButton(allIps));
+        if (source != null) source.sendFeedback(msg); else showLocalMessage(msg);
+        return 1;
+    }
+
     private static int executeDumpCommand(net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source) {
         ru.mqclass.ipcopy.scraper.SessionCaptureFSM fsm = ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance();
         java.util.Set<String> rawIps = fsm.getCapturedRawIps();
@@ -474,7 +530,7 @@ public final class IpCopyClient implements ClientModInitializer {
             String activeNick = ru.mqclass.ipcopy.lookup.IpLookupManager.getActiveQueryNick();
             if (activeNick != null) {
                 ru.mqclass.ipcopy.lookup.IpLookupManager.PlayerLookupData lastData = ru.mqclass.ipcopy.lookup.IpLookupManager.getData(activeNick);
-                if (lastData != null && !lastData.entries.isEmpty()) {
+                if (lastData != null && (!lastData.entries.isEmpty() || !lastData.allSessions.isEmpty())) {
                     nick = lastData.nick;
                     java.util.Map<String, ru.mqclass.ipcopy.forensics.IpForensicEngine.SubnetCluster> clMap =
                         ru.mqclass.ipcopy.forensics.IpForensicEngine.clusterSubnets(lastData.getUniqueIps());
@@ -503,16 +559,21 @@ public final class IpCopyClient implements ClientModInitializer {
             client.field_1774.method_1455(report);
         }
 
+        java.util.LinkedHashSet<String> uniqueIps = new java.util.LinkedHashSet<>(rawIps);
+        for (ru.mqclass.ipcopy.forensics.IpForensicEngine.SubnetCluster c : clusters) {
+            uniqueIps.addAll(c.rawIps());
+        }
+
         class_5250 feedback = class_2561.method_43470(
             "§6[IPCopy] §a✔ Отчёт судебной экспертизы скопирован в буфер обмена!\n" +
-            "§7Игрок: §f" + nick + " §7| Подсетей /24: §b" + clusters.size() + "\n"
+            "§7Игрок: §f" + nick + " §7| Уник. IP: §e" + uniqueIps.size() + " §7| Подсетей /24: §b" + clusters.size() + "\n"
         );
-        class_5250 copyBtn = class_2561.method_43470("§e[📋 СКОПИРОВАТЬ ПОВТОРНО]")
+        class_5250 copyBtn = class_2561.method_43470("§e[📋 СКОПИРОВАТЬ ОТЧЕТ] ")
             .method_10862(class_2583.field_24360
                 .method_10958(new class_2558.class_10606(report))
                 .method_10949(new class_2568.class_10613(class_2561.method_43470("§7Скопировать отчет Markdown"))));
 
-        class_5250 combined = feedback.method_10852(copyBtn);
+        class_5250 combined = feedback.method_10852(copyBtn).method_10852(IpCopyProcessor.createCopyAllUniqueButton(uniqueIps));
         if (source != null) source.sendFeedback(combined); else showLocalMessage(combined);
         return 1;
     }
@@ -521,6 +582,7 @@ public final class IpCopyClient implements ClientModInitializer {
         showLocalMessage(class_2561.method_43470(
             "\n§6IP Copy §7by mqclass (v" + VERSION + ")\n" +
             " §f▪ §6.ipcopy gui [ник] §8– §fпоиск IP по нику и окно настроек\n" +
+            " §f▪ §6.ipcopy copy [ник] §8– §fскопировать все уник. IP в столбик через запятую\n" +
             " §f▪ §6.ipcopy scan <ник> §8– §fавтоматическое сканирование всех страниц и проверка подсетей\n" +
             " §f▪ §6.ipcopy dump §8– §fэкспорт Discord-отчёта в буфер обмена\n" +
             " §f▪ §6.ipcopy cancel §8– §fсброс очередей и авто-сбора\n" +

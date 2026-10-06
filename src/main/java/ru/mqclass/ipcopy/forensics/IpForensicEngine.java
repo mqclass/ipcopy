@@ -230,13 +230,7 @@ public final class IpForensicEngine {
         for (SubnetCluster c : clusters) {
             allIps.addAll(c.rawIps);
         }
-        int count = 0;
-        for (String ip : allIps) {
-            sb.append(ip);
-            count++;
-            if (count < allIps.size()) sb.append(", ");
-            if (count % 4 == 0) sb.append("\n");
-        }
+        sb.append(String.join(",\n", allIps));
         sb.append("\n```\n");
         sb.append("*Сгенерировано клиентом IP Copy by mqclass*");
         return sb.toString();

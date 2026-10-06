@@ -65,6 +65,28 @@ public final class IpCopyProcessor {
         return extractIps(text, MAX_IPS_PER_MESSAGE);
     }
 
+    /**
+     * Formats a collection of IPv4 addresses into a comma-separated vertical column:
+     * 1.1.1.1,
+     * 2.2.2.2,
+     * 3.3.3.3
+     */
+    public static String formatIpsColumn(java.util.Collection<String> ips) {
+        if (ips == null || ips.isEmpty()) {
+            return "";
+        }
+        Set<String> unique = new LinkedHashSet<>();
+        for (String ip : ips) {
+            if (ip != null) {
+                String clean = ip.trim();
+                if (isValidIp(clean)) {
+                    unique.add(clean);
+                }
+            }
+        }
+        return String.join(",\n", unique);
+    }
+
     private static List<String> extractIps(String text, int limit) {
         if (text == null || text.length() < 7 || limit <= 0) {
             return List.of();
@@ -150,9 +172,6 @@ public final class IpCopyProcessor {
                 return message;
             }
 
-            // Inspect message for player auth responses and follow-up ClickEvents
-            ru.mqclass.ipcopy.lookup.IpLookupManager.inspectMessage(message, rawText);
-
             // Guard against duplicate processing
             if (rawText.contains(COPY_BUTTON_TAG) || rawText.contains(LEGACY_COPY_BUTTON_TAG)) {
                 return message;
@@ -208,16 +227,20 @@ public final class IpCopyProcessor {
 
             appendLineButtons(rebuilt, ipsByLine, lineIndex[0]);
 
-            // If multi-line message contained multiple IPs across lines, append master [⚡ ПРОВЕРИТЬ ВСЕ] at the end
+            // Collect all unique IPs across lines of this multi-line message
             List<String> allUnique = new ArrayList<>();
             for (List<String> list : ipsByLine) {
                 for (String ip : list) {
                     if (!allUnique.contains(ip)) allUnique.add(ip);
                 }
             }
-            if (allUnique.size() > 1 && IpCopyConfig.getInstance().autoScanButtonInChat) {
+            if (!allUnique.isEmpty()) {
                 rebuilt.method_27693("\n ");
-                rebuilt.method_10852(createScanAllButton(allUnique));
+                rebuilt.method_10852(createCopyAllUniqueButton(allUnique));
+                if (allUnique.size() > 1 && IpCopyConfig.getInstance().autoScanButtonInChat) {
+                    rebuilt.method_27693(" ");
+                    rebuilt.method_10852(createScanAllButton(allUnique));
+                }
             }
 
             return rebuilt;
@@ -255,6 +278,29 @@ public final class IpCopyProcessor {
     }
 
     /**
+     * Creates interactive [📋 Скоп. уник. IP (X)] button that copies all unique IPs in column format with commas.
+     */
+    public static class_2561 createCopyAllUniqueButton( java.util.Collection<String> ips) {
+        if (ips == null || ips.isEmpty()) return class_2561.method_43473();
+        Set<String> unique = new LinkedHashSet<>(ips);
+        String columnFormatted = formatIpsColumn(unique);
+        String title = "§e[📋 Скоп. уник. IP (" + unique.size() + ")]";
+
+        class_5250 button = class_2561.method_43470(title);
+        class_5250 tooltipText = class_2561.method_43470(
+            "§6[IPCopy] §eСкопировать уникальные IP в столбик через запятую:\n§a" +
+            columnFormatted + "\n§7Всего уникальных: §f" + unique.size()
+        );
+
+        class_2583 style = class_2583.field_24360
+            .method_10977(class_124.field_1054) // Formatting.YELLOW
+            .method_10958(new class_2558.class_10606(columnFormatted)) // ClickEvent.CopyToClipboard
+            .method_10949(new class_2568.class_10613(tooltipText)); // HoverEvent.ShowText
+
+        return button.method_10862(style);
+    }
+
+    /**
      * Creates interactive [⚡ ПРОВЕРИТЬ ВСЕ (X уник.)] button for 1-click batch queue scanning.
      */
     public static class_2561 createScanAllButton(List<String> ips) {
@@ -266,7 +312,7 @@ public final class IpCopyProcessor {
         class_5250 button = class_2561.method_43470(title);
         class_5250 tooltipText = class_2561.method_43470(
             "§d[IPCopy AutoScan] §eНажмите для авто-сканирования всех " + unique.size() + " IP через очередь!\n" +
-            "§7Кулдаун: §b1250ms §8(защита от кика)\n" +
+            "§7Кулдаун: §b1450ms §8(защита от кика)\n" +
             "§7Спам ответов будет скрыт, а в конце будет красивый звуковой отчёт!"
         );
 

@@ -73,6 +73,7 @@ public final class IpLookupManager {
         public volatile PlayerProfile profile;
         public final List<PlayerIpEntry> entries = new CopyOnWriteArrayList<>();
         public final List<PlayerIpEntry> allSessions = new CopyOnWriteArrayList<>();
+        public final Map<Integer, List<PlayerIpEntry>> pageSessions = new ConcurrentHashMap<>();
         public final Map<String, List<String>> ipTwinksMap = new ConcurrentHashMap<>();
         public final Set<String> ipCheckedForTwinks = Collections.synchronizedSet(new LinkedHashSet<>());
         public final Set<String> allCollectedIps = Collections.synchronizedSet(new LinkedHashSet<>());
@@ -100,6 +101,35 @@ public final class IpLookupManager {
             this.cmdNext = null;
             this.cmdLast = null;
             this.hasServerPagination = false;
+        }
+
+        public int getCollectedPagesCount() {
+            if (!this.pageSessions.isEmpty()) {
+                return this.pageSessions.size();
+            }
+            return this.entries.isEmpty() ? 0 : 1;
+        }
+
+        public synchronized void rebuildAllSessions() {
+            if (this.pageSessions.isEmpty()) {
+                return;
+            }
+            List<Integer> pages = new ArrayList<>(this.pageSessions.keySet());
+            pages.sort(Collections.reverseOrder());
+
+            List<PlayerIpEntry> combined = new ArrayList<>();
+            for (Integer page : pages) {
+                List<PlayerIpEntry> pageList = this.pageSessions.get(page);
+                if (pageList != null && !pageList.isEmpty()) {
+                    List<PlayerIpEntry> copy = new ArrayList<>(pageList);
+                    Collections.reverse(copy);
+                    combined.addAll(copy);
+                }
+            }
+
+            combined.sort((a, b) -> Long.compare(parseDateTimestamp(b.date()), parseDateTimestamp(a.date())));
+            this.allSessions.clear();
+            this.allSessions.addAll(combined);
         }
 
         public List<String> getUniqueIps() {
@@ -152,12 +182,13 @@ public final class IpLookupManager {
     );
 
     private static final Pattern LOGINS_HEADER_PATTERN = Pattern.compile(
-        "(?:Входы|Авторизации|История входов|Logins of)\\s+(?:игрока\\s+)?[^A-Za-z0-9_]*(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16})",
+        "(?:Входы|Авторизации|История входов|Logins of)\\s+(?:игрока\\s+)?[^A-Za-z0-9_\\r\\n]*(?:\\[[^\\]]*\\]\\s*)?([A-Za-z0-9_]{1,16})",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
     );
 
     private static final Pattern PAGE_HEADER_PATTERN = Pattern.compile(
-        "\\((\\d+)\\s*/\\s*(\\d+)\\)"
+        "\\((\\d+)\\s*[/из]\\s*(\\d+)\\)",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
     );
 
     private static final Pattern DATE_PATTERN = Pattern.compile(
@@ -209,6 +240,7 @@ public final class IpLookupManager {
         for (PlayerIpEntry e : odinoky.entries) {
             odinoky.allCollectedIps.add(e.ip());
         }
+        odinoky.pageSessions.put(28, new CopyOnWriteArrayList<>(odinoky.entries));
         odinoky.allSessions.addAll(odinoky.entries);
         odinoky.ipCheckedForTwinks.add("185.230.240.209");
         odinoky.ipTwinksMap.put("185.230.240.209", List.of("DiNoKy", "mqclass"));
@@ -230,6 +262,7 @@ public final class IpLookupManager {
         for (PlayerIpEntry e : dinoky.entries) {
             dinoky.allCollectedIps.add(e.ip());
         }
+        dinoky.pageSessions.put(1, new CopyOnWriteArrayList<>(dinoky.entries));
         dinoky.allSessions.addAll(dinoky.entries);
         dinoky.ipCheckedForTwinks.add("185.230.240.209");
         dinoky.ipTwinksMap.put("185.230.240.209", List.of("Odinoky", "mqclass"));
@@ -384,6 +417,21 @@ public final class IpLookupManager {
         }
     }
 
+    public static long parseDateTimestamp(String dateStr) {
+        if (dateStr == null || dateStr.length() < 16) return 0L;
+        try {
+            // Expected format: dd-MM-yyyy HH:mm
+            int day = Integer.parseInt(dateStr.substring(0, 2));
+            int month = Integer.parseInt(dateStr.substring(3, 5));
+            int year = Integer.parseInt(dateStr.substring(6, 10));
+            int hour = Integer.parseInt(dateStr.substring(11, 13));
+            int min = Integer.parseInt(dateStr.substring(14, 16));
+            return (((long) year * 10000L + (long) month * 100L + day) * 10000L) + (hour * 100L + min);
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
     public static List<UniqueIpGroup> getUniqueGroups(String nick) {
         return getUniqueGroups(nick, UniqueSortMode.COUNT_DESC);
     }
@@ -393,15 +441,22 @@ public final class IpLookupManager {
         if (data == null) return Collections.emptyList();
 
         List<PlayerIpEntry> source = !data.allSessions.isEmpty() ? data.allSessions : data.entries;
-        if (source.isEmpty()) return Collections.emptyList();
+        if (source.isEmpty() && data.allCollectedIps.isEmpty()) return Collections.emptyList();
 
-        int totalSessions = source.size();
         Map<String, List<PlayerIpEntry>> byIp = new LinkedHashMap<>();
         for (PlayerIpEntry entry : source) {
             byIp.computeIfAbsent(entry.ip(), k -> new ArrayList<>()).add(entry);
         }
+        synchronized (data.allCollectedIps) {
+            for (String ip : data.allCollectedIps) {
+                if (ip != null && IpCopyProcessor.isValidIp(ip) && !byIp.containsKey(ip)) {
+                    byIp.put(ip, new ArrayList<>(List.of(new PlayerIpEntry("—", ip, "session"))));
+                }
+            }
+        }
 
-        List<UniqueIpGroup> groups = new ArrayList<>();
+        int totalSessions = Math.max(1, !source.isEmpty() ? source.size() : byIp.size());
+        List<UniqueIpGroup> groups = new ArrayList<>(byIp.size());
         for (Map.Entry<String, List<PlayerIpEntry>> e : byIp.entrySet()) {
             String ip = e.getKey();
             List<PlayerIpEntry> list = e.getValue();
@@ -428,8 +483,8 @@ public final class IpLookupManager {
                 return Integer.compare(b.count(), a.count());
             });
             case COUNT_DESC -> groups.sort((a, b) -> Integer.compare(b.count(), a.count()));
-            case DATE_NEWEST -> groups.sort((a, b) -> b.lastDate().compareTo(a.lastDate()));
-            case DATE_OLDEST -> groups.sort((a, b) -> a.firstDate().compareTo(b.firstDate()));
+            case DATE_NEWEST -> groups.sort((a, b) -> Long.compare(parseDateTimestamp(b.lastDate()), parseDateTimestamp(a.lastDate())));
+            case DATE_OLDEST -> groups.sort((a, b) -> Long.compare(parseDateTimestamp(a.firstDate()), parseDateTimestamp(b.firstDate())));
         }
 
         return groups;
@@ -458,8 +513,25 @@ public final class IpLookupManager {
         return ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getCurrentScrapedPage();
     }
 
+    public static int getAutoCrawlIngestedPagesCount() {
+        return ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getIngestedPagesCount();
+    }
+
     public static int getAutoCrawlTotalPages() {
         return ru.mqclass.ipcopy.scraper.SessionCaptureFSM.getInstance().getTotalExpectedPages();
+    }
+
+    public static void onAutoCrawlPageUpdate(String nick) {
+        if (nick == null || nick.isEmpty()) return;
+        if (expressAuditRunning && nick.equalsIgnoreCase(expressAuditNick)) {
+            expressAuditStage = "Сбор сессий (" + getAutoCrawlIngestedPagesCount() + "/" + getAutoCrawlTotalPages() + ")...";
+        }
+        notifyListener(nick);
+    }
+
+    public static void onAutoCrawlFinished(String nick) {
+        if (nick == null || nick.isEmpty()) return;
+        notifyListener(nick);
     }
 
     public static synchronized void startAutoCrawl(String nick) {
@@ -574,6 +646,16 @@ public final class IpLookupManager {
         if (cleanText == null || cleanText.isEmpty()) return;
         String lower = cleanText.toLowerCase(Locale.ROOT);
 
+        // If server rejects /dupeip command due to rank permissions or unknown command while batchDupeRunning, abort batchDupe cleanly
+        if (batchDupeRunning && (lower.contains("ты не можешь это делать")
+                || lower.contains("неизвестная или неполная команда")
+                || lower.contains("<--[здесь]")
+                || lower.contains("у вас нет прав")
+                || lower.contains("недостаточно прав"))) {
+            stopBatchDupe(true);
+            return;
+        }
+
         boolean isDupeRelated = lower.contains("dupe") || lower.contains("твинк")
             || lower.contains("аккаунт") || lower.contains("совпаден")
             || (lower.contains("игрок") && (lower.contains("найдено") || lower.contains("ip") || lower.contains("базе")));
@@ -653,6 +735,13 @@ public final class IpLookupManager {
         }
         sb.append("\n");
         sb.append("Уникальных IP-адресов: ").append(groups.size()).append("\n");
+        if (!groups.isEmpty()) {
+            List<String> uniqueIps = new ArrayList<>(groups.size());
+            for (UniqueIpGroup g : groups) uniqueIps.add(g.ip());
+            sb.append("────────────────────────────────────────\n");
+            sb.append("УНИКАЛЬНЫЕ IP (В СТОЛБИК ЧЕРЕЗ ЗАПЯТУЮ):\n");
+            sb.append(IpCopyProcessor.formatIpsColumn(uniqueIps)).append("\n");
+        }
         sb.append("────────────────────────────────────────\n");
         sb.append("ДЕТАЛИЗАЦИЯ ПО IP:\n");
 
@@ -813,7 +902,7 @@ public final class IpLookupManager {
                 }
                 data.followUpCommand = clickCmd;
 
-                // If user initiated a query or checked a profile, automatically fetch the login history with a safe 1300ms delay
+                // If user initiated a query or checked a profile, automatically fetch the login history with a safe rate-limited dispatch
                 boolean shouldAutoFetch = (activeQueryNick == null || isQueryPending(nick) || activeQueryNick.equalsIgnoreCase(nick));
                 long now = System.currentTimeMillis();
 
@@ -830,7 +919,7 @@ public final class IpLookupManager {
             return;
         }
 
-        // Case 3: Logins header: "----- Входы игрока [head]nick (28/29) -----"
+        // Case 3: Logins header: "┏━━━━━ Входы игрока [head]nick (28/29) ━━━━━"
         Matcher loginsHeaderMatcher = LOGINS_HEADER_PATTERN.matcher(cleanText);
         if (loginsHeaderMatcher.find()) {
             String nick = loginsHeaderMatcher.group(1);
@@ -851,16 +940,14 @@ public final class IpLookupManager {
                     } catch (Exception ignored) {}
                 }
 
-                // Auto-crawler tracking
-                if (IpCopyConfig.getInstance().autoFetchAllPages && data.serverTotalPages > 1 && !isAutoCrawling()) {
-                    startAutoCrawl(nick);
-                }
+                // Reset the entry list for this specific page so re-viewing a page never duplicates its sessions
+                data.pageSessions.put(data.serverCurrentPage, new CopyOnWriteArrayList<>());
 
                 notifyListener(nick);
             }
         }
 
-        // Case 4: Streaming session entries: "├ 11-09-2026 23:50 · 185.230.240.209 · session"
+        // Case 4: Streaming or multi-line session entries: "┣ 11-09-2026 23:50 • 185.230.240.209 • session"
         String targetNick = activeHistoryNick;
         if (targetNick == null && activeQueryNick != null && (System.currentTimeMillis() - activeQueryTime) < 5000L) {
             targetNick = activeQueryNick;
@@ -873,33 +960,37 @@ public final class IpLookupManager {
                 String[] lines = cleanText.split("\n");
                 boolean addedAny = false;
                 PlayerLookupData data = getOrCreateData(targetNick);
+                List<PlayerIpEntry> currentPageList = data.pageSessions.computeIfAbsent(
+                    Math.max(1, data.serverCurrentPage), k -> new CopyOnWriteArrayList<>()
+                );
 
                 for (String line : lines) {
-                    List<String> ips = IpCopyProcessor.extractIps(line);
+                    int btnIdx = line.indexOf("[Скоп. IP");
+                    String lineCore = btnIdx >= 0 ? line.substring(0, btnIdx) : line;
+
+                    List<String> ips = IpCopyProcessor.extractIps(lineCore);
                     if (ips.isEmpty()) {
                         continue;
                     }
 
                     String ip = ips.get(0);
                     String date = "Неизвестно";
-                    Matcher dateMatcher = DATE_PATTERN.matcher(line);
+                    Matcher dateMatcher = DATE_PATTERN.matcher(lineCore);
                     if (dateMatcher.find()) {
                         date = dateMatcher.group(1);
                     }
 
-                    String type = line.toLowerCase(Locale.ROOT).contains("session") ? "session" : "login";
+                    String lowerLine = lineCore.toLowerCase(Locale.ROOT);
+                    String type = lowerLine.contains("password") ? "password" : (lowerLine.contains("session") ? "session" : "login");
                     PlayerIpEntry newEntry = new PlayerIpEntry(date, ip, type);
                     data.allCollectedIps.add(ip);
-                    if (!data.allSessions.contains(newEntry)) {
-                        data.allSessions.add(newEntry);
-                    }
-                    if (!data.entries.contains(newEntry)) {
-                        data.entries.add(newEntry);
-                        addedAny = true;
-                    }
+                    data.entries.add(newEntry);
+                    currentPageList.add(newEntry);
+                    addedAny = true;
                 }
 
                 if (addedAny) {
+                    data.rebuildAllSessions();
                     data.status = LookupStatus.FOUND;
                     data.lastUpdated = System.currentTimeMillis();
                     notifyListener(targetNick);
@@ -917,7 +1008,7 @@ public final class IpLookupManager {
                 PlayerLookupData data = getData(activeHistoryNick);
                 if (data != null) {
                     extractNavigationCommands(message, data);
-                    data.hasServerPagination = true;
+                    data.hasServerPagination = data.serverTotalPages > 1;
                     notifyListener(activeHistoryNick);
                 }
             }
@@ -1082,9 +1173,9 @@ public final class IpLookupManager {
         }
 
         if (data.status == LookupStatus.FOUND) {
-            // Stage 1 -> Stage 2: Profile received, history has multiple pages, start auto-crawling
-            if (data.serverTotalPages > 1 && !isAutoCrawling() && !batchDupeRunning && data.serverCurrentPage < data.serverTotalPages) {
-                expressAuditStage = "Сбор сессий (1/" + data.serverTotalPages + ")...";
+            // Stage 1 -> Stage 2: Profile received, history has multiple pages, start auto-crawling if not all pages collected
+            if (data.serverTotalPages > 1 && !isAutoCrawling() && !batchDupeRunning && data.getCollectedPagesCount() < data.serverTotalPages) {
+                expressAuditStage = "Сбор сессий (" + data.getCollectedPagesCount() + "/" + data.serverTotalPages + ")...";
                 startAutoCrawl(nick);
                 return;
             }
@@ -1113,10 +1204,12 @@ public final class IpLookupManager {
         expressAuditStage = "Готово!";
 
         String dossier = generateExpressDossier(nick);
-        copyToClipboardInternal(dossier);
+        List<String> uniqueIpsList = data != null ? data.getUniqueIps() : Collections.emptyList();
+        String columnIps = IpCopyProcessor.formatIpsColumn(uniqueIpsList);
+        copyToClipboardInternal(!columnIps.isEmpty() ? columnIps : dossier);
 
         int totalSessions = data != null ? (!data.allSessions.isEmpty() ? data.allSessions.size() : data.entries.size()) : 0;
-        int uniqueIps = data != null ? data.getUniqueIps().size() : 0;
+        int uniqueIps = uniqueIpsList.size();
         int twinks = countTotalTwinks(data);
 
         IpFeedback.onExpressAuditFinished(nick, totalSessions, uniqueIps, twinks);
@@ -1128,6 +1221,9 @@ public final class IpLookupManager {
         class_310 client = class_310.method_1551();
         if (client == null) return;
 
+        PlayerLookupData data = getData(nick);
+        String columnIps = data != null ? IpCopyProcessor.formatIpsColumn(data.getUniqueIps()) : "";
+
         client.execute(() -> {
             net.minecraft.class_5250 header = class_2561.method_43470(
                 "\n§6§l[IPCopy] §a✔ Экспресс-аудит под ключ завершён для §e" + nick + "§a!\n" +
@@ -1136,21 +1232,30 @@ public final class IpLookupManager {
                 " §7| Твинков обнаружено: " + (twinks > 0 ? "§c§l" + twinks : "§a0 (чист)") + "\n"
             );
 
-            // Button 1: Copy dossier
-            net.minecraft.class_5250 copyBtn = class_2561.method_43470("§6[📋 СКОПИРОВАТЬ ДОСЬЕ]")
+            // Button 1: Copy Unique IPs in column format with commas
+            net.minecraft.class_5250 copyIpsBtn = class_2561.method_43470("§e[📋 УНИК. IP (" + uniqueIps + ")] ")
+                .method_10862(net.minecraft.class_2583.field_24360
+                    .method_10977(net.minecraft.class_124.field_1054)
+                    .method_10958(new net.minecraft.class_2558.class_10606(columnIps))
+                    .method_10949(new net.minecraft.class_2568.class_10613(class_2561.method_43470(
+                        "§eСкопировать все уникальные IP в столбик через запятую:\n§a" + columnIps
+                    ))));
+
+            // Button 2: Copy dossier
+            net.minecraft.class_5250 copyBtn = class_2561.method_43470("§6[📋 ДОСЬЕ]")
                 .method_10862(net.minecraft.class_2583.field_24360
                     .method_10977(net.minecraft.class_124.field_1065)
                     .method_10958(new net.minecraft.class_2558.class_10606(dossier))
                     .method_10949(new net.minecraft.class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы скопировать полное досье игрока в буфер"))));
 
-            // Button 2: Open GUI
+            // Button 3: Open GUI
             net.minecraft.class_5250 guiBtn = class_2561.method_43470(" §a[🔍 В GUI]")
                 .method_10862(net.minecraft.class_2583.field_24360
                     .method_10977(net.minecraft.class_124.field_1060)
                     .method_10958(new net.minecraft.class_2558.class_10609("/ipcopy gui " + nick))
                     .method_10949(new net.minecraft.class_2568.class_10613(class_2561.method_43470("§eНажмите, чтобы открыть подробное интерактивное досье"))));
 
-            net.minecraft.class_5250 combined = header.method_10852(copyBtn).method_10852(guiBtn);
+            net.minecraft.class_5250 combined = header.method_10852(copyIpsBtn).method_10852(copyBtn).method_10852(guiBtn);
             if (client.field_1724 != null) {
                 client.field_1724.method_7353(combined, false);
             }
