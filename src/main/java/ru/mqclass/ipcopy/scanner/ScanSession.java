@@ -107,17 +107,33 @@ public final class ScanSession {
         return (int) Math.ceil((remaining * delayPerIpMs) / 1000.0);
     }
 
-    public void recordResult(String ip, List<String> twinks, boolean fromCache) {
+    public synchronized void recordResult(String ip, List<String> twinks, boolean fromCache) {
         if (ip == null || ip.isBlank()) return;
-        List<String> safeList = (twinks != null) ? new ArrayList<>(twinks) : Collections.emptyList();
-        results.put(ip, safeList);
-        if (!safeList.isEmpty()) {
-            twinksFoundCount.addAndGet(safeList.size());
+        List<String> existing = results.get(ip);
+        if (existing == null) {
+            List<String> safeList = (twinks != null) ? new ArrayList<>(twinks) : new ArrayList<>();
+            results.put(ip, safeList);
+            if (!safeList.isEmpty()) {
+                twinksFoundCount.addAndGet(safeList.size());
+            }
+            if (fromCache) {
+                cachedHitsCount.incrementAndGet();
+            }
+            processedCount.incrementAndGet();
+        } else if (twinks != null && !twinks.isEmpty()) {
+            List<String> merged = new ArrayList<>(existing);
+            int added = 0;
+            for (String t : twinks) {
+                if (!merged.contains(t)) {
+                    merged.add(t);
+                    added++;
+                }
+            }
+            if (added > 0) {
+                results.put(ip, merged);
+                twinksFoundCount.addAndGet(added);
+            }
         }
-        if (fromCache) {
-            cachedHitsCount.incrementAndGet();
-        }
-        processedCount.incrementAndGet();
     }
 
     public Map<String, List<String>> getResults() {

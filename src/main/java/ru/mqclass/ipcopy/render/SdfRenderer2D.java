@@ -190,6 +190,9 @@ public final class SdfRenderer2D implements AutoCloseable {
         shader.bind();
         shader.setProjectionMatrix(projMatrix);
 
+        if (this.instanceBuffer != null) {
+            this.instanceBuffer.clear();
+        }
         this.instanceCount = 0;
     }
 
@@ -223,6 +226,9 @@ public final class SdfRenderer2D implements AutoCloseable {
         int flags,
         float shadowOffsetX, float shadowOffsetY, float shadowBlur, float shadowIntensity
     ) {
+        if (instanceBuffer == null) {
+            return;
+        }
         if (instanceCount >= MAX_INSTANCES) {
             flush();
         }
@@ -233,10 +239,10 @@ public final class SdfRenderer2D implements AutoCloseable {
         float sumLeft = rTL + rBL;
         float sumRight = rTR + rBR;
         float f = 1.0f;
-        if (sumTop > width) f = Math.min(f, width / sumTop);
-        if (sumBottom > width) f = Math.min(f, width / sumBottom);
-        if (sumLeft > height) f = Math.min(f, height / sumLeft);
-        if (sumRight > height) f = Math.min(f, height / sumRight);
+        if (sumTop > width && sumTop > 0.0f) f = Math.min(f, width / sumTop);
+        if (sumBottom > width && sumBottom > 0.0f) f = Math.min(f, width / sumBottom);
+        if (sumLeft > height && sumLeft > 0.0f) f = Math.min(f, height / sumLeft);
+        if (sumRight > height && sumRight > 0.0f) f = Math.min(f, height / sumRight);
 
         rTL *= f;
         rTR *= f;
@@ -247,6 +253,12 @@ public final class SdfRenderer2D implements AutoCloseable {
         float centerY = y + height * 0.5f;
 
         int base = instanceCount * INSTANCE_STRIDE;
+        if (base + INSTANCE_STRIDE > instanceBuffer.limit()) {
+            instanceBuffer.limit(instanceBuffer.capacity());
+        }
+        if (base + INSTANCE_STRIDE > instanceBuffer.capacity()) {
+            return;
+        }
 
         // Offset 0: i_Bounds (16 bytes)
         instanceBuffer.putFloat(base + 0, centerX);
@@ -354,39 +366,44 @@ public final class SdfRenderer2D implements AutoCloseable {
      * Flushes buffered instances to GPU via glBufferSubData and issues glDrawElementsInstanced.
      */
     public void flush() {
-        if (instanceCount == 0) return;
+        if (instanceCount == 0 || instanceBuffer == null) return;
 
-        GL30C.glBindVertexArray(vao);
-        GL15C.glBindBuffer(GL15C.GL_ARRAY_BUFFER, instanceVbo);
+        try {
+            GL30C.glBindVertexArray(vao);
+            GL15C.glBindBuffer(GL15C.GL_ARRAY_BUFFER, instanceVbo);
 
-        instanceBuffer.position(0);
-        instanceBuffer.limit(instanceCount * INSTANCE_STRIDE);
-        GL15C.glBufferSubData(GL15C.GL_ARRAY_BUFFER, 0, instanceBuffer);
+            instanceBuffer.position(0);
+            instanceBuffer.limit(instanceCount * INSTANCE_STRIDE);
+            GL15C.glBufferSubData(GL15C.GL_ARRAY_BUFFER, 0, instanceBuffer);
 
-        // Instanced draw call: 6 vertices per quad, instanceCount instances
-        GL33C.glDrawElementsInstanced(GL11C.GL_TRIANGLES, 6, GL11C.GL_UNSIGNED_SHORT, 0L, instanceCount);
-
-        GL30C.glBindVertexArray(0);
-        instanceCount = 0;
+            // Instanced draw call: 6 vertices per quad, instanceCount instances
+            GL33C.glDrawElementsInstanced(GL11C.GL_TRIANGLES, 6, GL11C.GL_UNSIGNED_SHORT, 0L, instanceCount);
+        } finally {
+            instanceBuffer.clear();
+            GL30C.glBindVertexArray(0);
+            instanceCount = 0;
+        }
     }
 
     /**
      * Ends batch, flushes instances, and cleanly restores original OpenGL state.
      */
     public void end() {
-        flush();
-        shader.unbind();
+        try {
+            flush();
+        } finally {
+            shader.unbind();
 
-        // Restore pipeline state for Sodium / Iris compatibility
-        if (savedDepthTest) GL11C.glEnable(GL11C.GL_DEPTH_TEST);
-        if (!savedBlend) GL11C.glDisable(GL11C.GL_BLEND);
-        GL14C.glBlendFunc(savedBlendSrcRgb, savedBlendDstRgb);
-        if (savedScissorTest) GL11C.glEnable(GL11C.GL_SCISSOR_TEST); else GL11C.glDisable(GL11C.GL_SCISSOR_TEST);
+            // Restore pipeline state for Sodium / Iris compatibility
+            if (savedDepthTest) GL11C.glEnable(GL11C.GL_DEPTH_TEST);
+            if (!savedBlend) GL11C.glDisable(GL11C.GL_BLEND);
+            GL14C.glBlendFunc(savedBlendSrcRgb, savedBlendDstRgb);
+            if (savedScissorTest) GL11C.glEnable(GL11C.GL_SCISSOR_TEST); else GL11C.glDisable(GL11C.GL_SCISSOR_TEST);
 
-        GL30C.glBindVertexArray(savedVao);
-        GL15C.glBindBuffer(GL15C.GL_ARRAY_BUFFER, savedArrayBuffer);
-        GL15C.glBindBuffer(GL15C.GL_ELEMENT_ARRAY_BUFFER, savedElementBuffer);
-        GL20C.glUseProgram(savedProgram);
+            GL30C.glBindVertexArray(savedVao);
+            GL15C.glBindBuffer(GL15C.GL_ARRAY_BUFFER, savedArrayBuffer);
+            GL20C.glUseProgram(savedProgram);
+        }
     }
 
     private static int argbToRgba(int argb) {

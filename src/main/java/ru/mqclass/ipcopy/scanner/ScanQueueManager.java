@@ -237,6 +237,8 @@ public final class ScanQueueManager {
         });
     }
 
+    private volatile long expectingDupeAccountsUntil = 0L;
+
     /**
      * Intercepts server responses from /dupeip or /check while scan is running.
      * Returns true if message was matched and should be suppressed from chat.
@@ -247,10 +249,30 @@ public final class ScanQueueManager {
             return false;
         }
 
-        if (cleanText == null || cleanText.isEmpty()) return false;
-        String lower = cleanText.toLowerCase(Locale.ROOT);
+        if (cleanText == null || cleanText.isBlank()) return false;
+        String trimmed = cleanText.trim();
+        String lower = trimmed.toLowerCase(Locale.ROOT);
 
-        boolean isDupeRelated = lower.contains("dupe") || lower.contains("твинк")
+        // Ignore unrelated public/local chat and anticheat broadcasts
+        if (trimmed.startsWith("ɢ |") || trimmed.startsWith("ʟ |") || trimmed.startsWith("SAC >")
+                || trimmed.startsWith("▶") || trimmed.startsWith("✞") || trimmed.startsWith("╔")) {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        boolean isSpaceTimesHeader = lower.contains("информация о игроке")
+            || (lower.contains("онлайн") && lower.contains("оффлайн") && lower.contains("забанен"));
+        if (isSpaceTimesHeader) {
+            expectingDupeAccountsUntil = now + 2500L;
+        }
+
+        boolean isFollowUpAccountList = (now <= expectingDupeAccountsUntil) && !isSpaceTimesHeader;
+        if (isFollowUpAccountList) {
+            expectingDupeAccountsUntil = 0L;
+        }
+
+        boolean isDupeRelated = isSpaceTimesHeader || isFollowUpAccountList
+            || lower.contains("dupe") || lower.contains("твинк")
             || lower.contains("аккаунт") || lower.contains("совпаден")
             || lower.contains("игроки с таким ip")
             || (lower.contains("ip") && (lower.contains("найдено") || lower.contains("базе")));
@@ -261,13 +283,12 @@ public final class ScanQueueManager {
 
         String targetIp = awaitingResponseForIp;
         if (targetIp != null) {
-            List<String> twinks = extractTwinksFromLine(cleanText, session.getTargetNick());
+            List<String> twinks = extractTwinksFromLine(trimmed, session.getTargetNick());
             List<String> siblings = pendingSubnetSiblings.getOrDefault(targetIp, List.of(targetIp));
             for (String sibIp : siblings) {
-                if (!session.getResults().containsKey(sibIp)) {
-                    session.recordResult(sibIp, twinks, false);
-                    ipCache.put(sibIp, new CachedScanResult(sibIp, twinks, System.currentTimeMillis()));
-                }
+                session.recordResult(sibIp, twinks, false);
+                List<String> merged = session.getResults().getOrDefault(sibIp, twinks);
+                ipCache.put(sibIp, new CachedScanResult(sibIp, merged, now));
             }
         }
 

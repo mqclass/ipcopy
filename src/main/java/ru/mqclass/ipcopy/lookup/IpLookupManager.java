@@ -642,9 +642,18 @@ public final class IpLookupManager {
         }, delayMs, TimeUnit.MILLISECONDS);
     }
 
+    private static volatile long expectingDupeAccountsUntil = 0L;
+
     public static void checkDupeIpMessage(String cleanText) {
-        if (cleanText == null || cleanText.isEmpty()) return;
-        String lower = cleanText.toLowerCase(Locale.ROOT);
+        if (cleanText == null || cleanText.isBlank()) return;
+        String trimmed = cleanText.trim();
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+
+        // Ignore unrelated public/local chat and anticheat broadcasts
+        if (trimmed.startsWith("ɢ |") || trimmed.startsWith("ʟ |") || trimmed.startsWith("SAC >")
+                || trimmed.startsWith("▶") || trimmed.startsWith("✞") || trimmed.startsWith("╔")) {
+            return;
+        }
 
         // If server rejects /dupeip command due to rank permissions or unknown command while batchDupeRunning, abort batchDupe cleanly
         if (batchDupeRunning && (lower.contains("ты не можешь это делать")
@@ -656,14 +665,33 @@ public final class IpLookupManager {
             return;
         }
 
-        boolean isDupeRelated = lower.contains("dupe") || lower.contains("твинк")
+        long now = System.currentTimeMillis();
+        boolean isSpaceTimesHeader = lower.contains("информация о игроке")
+            || (lower.contains("онлайн") && lower.contains("оффлайн") && lower.contains("забанен"));
+        if (isSpaceTimesHeader) {
+            expectingDupeAccountsUntil = now + 2500L;
+        }
+
+        boolean isFollowUpAccountList = (now <= expectingDupeAccountsUntil) && !isSpaceTimesHeader;
+        if (isFollowUpAccountList) {
+            expectingDupeAccountsUntil = 0L;
+        }
+
+        boolean isDupeRelated = isSpaceTimesHeader || isFollowUpAccountList
+            || lower.contains("dupe") || lower.contains("твинк")
             || lower.contains("аккаунт") || lower.contains("совпаден")
             || (lower.contains("игрок") && (lower.contains("найдено") || lower.contains("ip") || lower.contains("базе")));
 
         if (!isDupeRelated) return;
 
-        List<String> ips = IpCopyProcessor.extractIps(cleanText);
+        List<String> ips = IpCopyProcessor.extractIps(trimmed);
         String targetIp = !ips.isEmpty() ? ips.get(0) : batchDupeCurrentIp;
+        if (targetIp == null) {
+            ru.mqclass.ipcopy.scanner.ScanSession scanSession = ru.mqclass.ipcopy.scanner.ScanQueueManager.getInstance().getCurrentSession();
+            if (scanSession != null) {
+                targetIp = scanSession.getCurrentIp();
+            }
+        }
         if (targetIp == null) return;
 
         String nick = (batchDupeNick != null) ? batchDupeNick : activeHistoryNick;
@@ -680,10 +708,11 @@ public final class IpLookupManager {
             || lower.contains("только один") || lower.contains("только этот")
             || lower.contains("совпадений не");
 
-        List<String> twinks = new ArrayList<>();
+        List<String> existing = data.ipTwinksMap.getOrDefault(targetIp, Collections.emptyList());
+        List<String> twinks = new ArrayList<>(existing);
         if (!isClean) {
             Pattern p = Pattern.compile("\\b([A-Za-z0-9_]{3,16})\\b");
-            Matcher m = p.matcher(cleanText);
+            Matcher m = p.matcher(trimmed);
             Set<String> blacklistedWords = Set.of(
                 "dupeip", "dupe", "spacetimes", "auth", "player", "login", "session",
                 "info", "true", "false", "null", "uuid", "telegram", "discord", "admin", "moder", "helper"
@@ -702,7 +731,7 @@ public final class IpLookupManager {
         }
 
         data.ipTwinksMap.put(targetIp, twinks);
-        data.lastUpdated = System.currentTimeMillis();
+        data.lastUpdated = now;
         notifyListener(nick);
     }
 
